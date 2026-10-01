@@ -103,6 +103,66 @@ Release rules:
   publishes them. Never rebuild or overwrite an existing version.
 - Patch releases require a regression test for the fixed behavior.
 
+## Branching and rollout strategy
+
+Use trunk-based development while the project is small. `main` is the single
+integration branch and must remain installable and releasable. Do not create a
+long-lived `develop` branch or environment branches.
+
+| Branch | Purpose | Lifetime |
+|---|---|---|
+| `main` | Reviewed, working integration branch. | Permanent; protect it once CI is established. |
+| `feat/<topic>` | One focused capability, such as `feat/stage1-store`. | Create from `main`; delete after merge. |
+| `fix/<topic>` | A focused bug fix, with a regression test. | Create from `main`; delete after merge. |
+| `docs/<topic>` | Documentation-only work. | Create from `main`; delete after merge. |
+| `chore/<topic>` | Tooling, dependency, or repository maintenance. | Create from `main`; delete after merge. |
+| `release/<version>` | Optional coordinated release preparation. | Short-lived; merge or tag, then delete. |
+
+### Feature workflow
+
+```text
+main ? create focused branch ? commit small, tested changes ? push ? pull request
+? required CI passes ? review ? squash merge to main ? delete feature branch
+```
+
+Start new work from an up-to-date `main`:
+
+```powershell
+git switch main
+git pull origin main
+git switch -c feat/<topic>
+git push -u origin feat/<topic>
+```
+
+Use conventional-style commit subjects (`feat:`, `fix:`, `docs:`, `chore:`) so
+the history and future release notes stay readable. Keep a pull request limited
+to one outcome; if a change needs unrelated work, split it into separate
+branches and PRs.
+
+### Main-branch protection
+
+Configure GitHub branch protection for `main` when the repository is ready:
+
+- Require pull requests before merging.
+- Require the Python 3.10, 3.11, 3.12, and package-build CI checks to pass.
+- Block force pushes and branch deletion.
+- Require at least one approval when collaborators join; until then, use a
+  deliberate self-review before merging.
+
+### Release rollout
+
+```text
+merged PRs on main
+  ? optional release-candidate tag (v0.1.0rc1)
+  ? TestPyPI validation and manual live-provider smoke test
+  ? final version/tag (v0.1.0)
+  ? immutable GitHub release and PyPI publication
+```
+
+Until the first package release, deploying means merging a CI-green pull request
+to `main`; no production service is being deployed. Roll back a merged change
+with a new `fix/` branch and a reverting commit, rather than force-pushing
+`main`.
 ## CI/CD pipeline
 
 ### Pull-request CI (required)
