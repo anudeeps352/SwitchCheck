@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from switchcheck import __version__
@@ -18,10 +19,10 @@ def test_version() -> None:
     assert result.stdout.strip() == __version__
 
 
-def test_init_creates_local_directory() -> None:
-    """Initialisation should create the project-local data directory."""
-    with runner.isolated_filesystem():
-        result = runner.invoke(app, ["init"])
+def test_init_creates_local_database(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Initialisation should create the project-local SQLite database."""
+    monkeypatch.chdir(tmp_path)
+    result = runner.invoke(app, ["init"])
 
-        assert result.exit_code == 0
-        assert Path(".switchcheck").is_dir()
+    assert result.exit_code == 0
+    assert Path(".switchcheck/switchcheck.sqlite3").is_file()
