@@ -1,0 +1,22 @@
+# Python build and test artifacts
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.pyright/
+htmlcov/
+.coverage
+coverage.xml
+build/
+dist/
+
+# Local environments and editor state
+.venv/
+.idea/
+.vscode/
+
+# Switchcheck local data and generated reports
+.switchcheck/
+switchcheck-report-*.html

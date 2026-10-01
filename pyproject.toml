@@ -1,0 +1,69 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "switchcheck"
+version = "0.1.0a0"
+description = "Replay real LLM traffic to evaluate safe model and prompt changes."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+authors = [{ name = "Switchcheck contributors" }]
+keywords = ["llm", "evaluation", "testing", "observability"]
+classifiers = [
+  "Development Status :: 2 - Pre-Alpha",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Software Development :: Testing",
+]
+dependencies = ["typer>=0.12,<1.0"]
+
+[project.optional-dependencies]
+dev = [
+  "build>=1.2,<2.0",
+  "pre-commit>=3.7,<5.0",
+  "pyright>=1.1.390,<2.0",
+  "pytest>=8.0,<9.0",
+  "ruff>=0.8,<1.0",
+]
+
+[project.scripts]
+switchcheck = "switchcheck.cli:app"
+
+[project.urls]
+Documentation = "https://github.com/<OWNER>/switchcheck#readme"
+Issues = "https://github.com/<OWNER>/switchcheck/issues"
+Source = "https://github.com/<OWNER>/switchcheck"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/switchcheck"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = ["-ra"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "auto"
+
+[tool.pyright]
+include = ["src", "tests"]
+exclude = [".venv", "build", "dist"]
+pythonVersion = "3.10"
+typeCheckingMode = "basic"
+reportMissingTypeStubs = "none"
