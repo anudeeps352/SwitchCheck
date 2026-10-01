@@ -18,10 +18,10 @@ def test_version() -> None:
     assert result.stdout.strip() == __version__
 
 
-def test_init_creates_local_directory() -> None:
-    """Initialisation should create the project-local data directory."""
+def test_init_creates_local_database() -> None:
+    """Initialisation should create the project-local SQLite database."""
     with runner.isolated_filesystem():
         result = runner.invoke(app, ["init"])
 
         assert result.exit_code == 0
-        assert Path(".switchcheck").is_dir()
+        assert Path(".switchcheck/switchcheck.sqlite3").is_file()

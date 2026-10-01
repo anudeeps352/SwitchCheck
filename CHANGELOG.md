@@ -7,6 +7,10 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## Unreleased
 
+
+### Added
+
+- SQLite database initialization, schema versioning, and migration safeguards.
 ## 0.1.0a0 - 2026-10-01
 
 ### Added

@@ -39,8 +39,8 @@ switchcheck --version
 switchcheck init
 ```
 
-`switchcheck init` currently creates the local `.switchcheck` directory. It
-will create and migrate the SQLite database in Stage 1.
+`switchcheck init` creates (or safely migrates) the local SQLite database at
+`.switchcheck/switchcheck.sqlite3`.
 
 ## Repository layout
 

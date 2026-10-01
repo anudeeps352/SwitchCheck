@@ -7,6 +7,7 @@ from pathlib import Path
 import typer
 
 from switchcheck import __version__
+from switchcheck.store import initialize_database
 
 app = typer.Typer(
     add_completion=False,
@@ -37,10 +38,6 @@ def main(
 
 @app.command()
 def init(path: Path = typer.Argument(Path("."), help="Project directory to initialise.")) -> None:
-    """Create the local Switchcheck directory.
-
-    Stage 1 will add the SQLite schema migration to this command.
-    """
-    data_directory = path.resolve() / ".switchcheck"
-    data_directory.mkdir(parents=True, exist_ok=True)
-    typer.echo(f"Initialised {data_directory}")
+    """Create or migrate the project-local Switchcheck database."""
+    path = initialize_database(path)
+    typer.echo(f"Initialised {path}")
