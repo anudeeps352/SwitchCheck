@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Annotated
 
 import typer
 
@@ -37,7 +38,9 @@ def main(
 
 
 @app.command()
-def init(path: Path = typer.Argument(Path("."), help="Project directory to initialise.")) -> None:
+def init(
+    path: Annotated[Path, typer.Argument(help="Project directory to initialise.")] = Path("."),
+) -> None:
     """Create or migrate the project-local Switchcheck database."""
     path = initialize_database(path)
     typer.echo(f"Initialised {path}")
