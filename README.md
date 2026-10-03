@@ -70,6 +70,17 @@ a provider. A regular replay persists its session and every individual result,
 including provider errors. Cost estimates are currently unavailable until local
 pricing data is added.
 
+Add repeatable deterministic checks to decide whether each output is acceptable:
+
+```powershell
+switchcheck replay --tag invoice-extractor --model openai/gpt-4o-mini `
+  --check exact --check json-schema:invoice-schema.json
+```
+
+Available checks are `exact`, `contains:TEXT`, `regex:PATTERN`,
+`json-schema:FILE`, and `json-field:PATH`. All configured checks must pass; a
+candidate provider error is always recorded as a failed result.
+
 ## Repository layout
 
 ```text
