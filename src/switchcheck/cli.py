@@ -10,6 +10,7 @@ import typer
 from switchcheck import __version__
 from switchcheck.checkers import parse_checkers
 from switchcheck.replay import replay, replay_dry_run
+from switchcheck.report import write_report
 from switchcheck.store import initialize_database, list_runs
 
 app = typer.Typer(
@@ -104,3 +105,20 @@ def replay_command(
         f"{summary.failed_count} provider failures, {summary.passed_count}/"
         f"{summary.selected_count} passed ({summary.pass_rate:.0%})."
     )
+
+
+@app.command("report")
+def report_command(
+    replay_id: Annotated[str, typer.Option("--replay", help="Replay ID to render.")],
+    output: Annotated[
+        Path | None,
+        typer.Option(help="Destination HTML file (defaults under .switchcheck/reports)."),
+    ] = None,
+    path: Annotated[Path, typer.Option(help="Project directory to inspect.")] = Path("."),
+) -> None:
+    """Create a self-contained HTML report for one replay."""
+    try:
+        destination = write_report(path, replay_id=replay_id, output=output)
+    except ValueError as error:
+        raise typer.BadParameter(str(error), param_hint="--replay") from error
+    typer.echo(f"Wrote report to {destination}")

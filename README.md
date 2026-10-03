@@ -5,7 +5,7 @@ parameters will break their application. It records real calls, replays them
 against a candidate configuration, evaluates the outputs, and creates a local
 report.
 
-This repository is in Stage 1 (recording). The product scope and
+This repository has completed Stage 4 (reporting). The product scope and
 delivery plan are in [architecture.md](architecture.md) and
 [development-plan.md](development-plan.md).
 
@@ -39,6 +39,7 @@ switchcheck --version
 switchcheck init
 switchcheck runs --tag invoice-extractor
 switchcheck replay --tag invoice-extractor --model openai/gpt-4o-mini --dry-run
+switchcheck report --replay REPLAY_ID
 ```
 
 `switchcheck init` creates (or safely migrates) the local SQLite database at
@@ -80,6 +81,19 @@ switchcheck replay --tag invoice-extractor --model openai/gpt-4o-mini `
 Available checks are `exact`, `contains:TEXT`, `regex:PATTERN`,
 `json-schema:FILE`, and `json-field:PATH`. All configured checks must pass; a
 candidate provider error is always recorded as a failed result.
+
+## Reporting a replay
+
+Create a standalone HTML report after a replay completes:
+
+```powershell
+switchcheck report --replay REPLAY_ID
+```
+
+The default destination is `.switchcheck/reports/REPLAY_ID.html`; pass
+`--output path/to/report.html` to choose another location. The report includes
+failure-first output comparisons, checker reasons, aggregate metrics, and the
+replay configuration. It contains recorded outputs, so handle it as sensitive.
 
 ## Repository layout
 

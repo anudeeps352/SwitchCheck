@@ -7,6 +7,7 @@ from typer.testing import CliRunner
 
 from switchcheck import __version__
 from switchcheck.cli import app
+from switchcheck.replay import replay
 from switchcheck.store import create_run
 
 runner = CliRunner()
@@ -80,3 +81,24 @@ def test_replay_dry_run_reports_selection(tmp_path: Path) -> None:
 
     assert result.exit_code == 0
     assert "Selected 1 runs" in result.stdout
+
+
+def test_report_writes_html(tmp_path: Path) -> None:
+    """The CLI renders a persisted replay without provider credentials."""
+    create_run(
+        tmp_path,
+        model="fake/model",
+        messages=[{"role": "user", "content": "Hello"}],
+        params={},
+    )
+    summary = replay(
+        tmp_path,
+        target_model="candidate/model",
+        completion=lambda **_: {"choices": [{"message": {"content": "Hello"}}]},
+    )
+
+    result = runner.invoke(app, ["report", "--path", str(tmp_path), "--replay", summary.replay_id])
+
+    assert result.exit_code == 0
+    assert "Wrote report to" in result.stdout
+    assert (tmp_path / ".switchcheck" / "reports" / f"{summary.replay_id}.html").is_file()
