@@ -58,6 +58,21 @@ def test_chat_records_provider_error(tmp_path) -> None:
     assert run.output_text is None
 
 
+def test_chat_records_json_message_content_as_json(tmp_path) -> None:
+    """JSON checkers receive the assistant output, not the provider response envelope."""
+    chat(
+        model="fake/model",
+        messages=[{"role": "user", "content": "Extract the invoice."}],
+        completion=lambda **_: {
+            "choices": [{"message": {"content": '{"invoice_id":"INV-1001"}'}}]
+        },
+        project_directory=tmp_path,
+    )
+
+    run = list_runs(tmp_path)[0]
+    assert run.output_json == {"invoice_id": "INV-1001"}
+
+
 def test_chat_rejects_empty_messages(tmp_path) -> None:
     """Invalid requests are rejected before they reach a provider or the store."""
     with pytest.raises(ValueError, match="at least one"):
