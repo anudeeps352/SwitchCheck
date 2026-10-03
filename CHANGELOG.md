@@ -7,7 +7,6 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## Unreleased
 
-
 ### Added
 
 - SQLite database initialization, schema versioning, and migration safeguards.
@@ -19,8 +18,16 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - Self-contained replay reports with aggregate metrics, failure-first output
   comparisons, checker details, and reproducibility metadata.
 - A synthetic invoice-extractor example and offline end-to-end smoke test.
+- A two-provider support-ticket example for recording one model and replaying
+  the same cases against another.
 - Privacy, price-data, and provider-limit guidance for local recordings and
   generated reports.
+
+### Fixed
+
+- JSON Schema and JSON-field checks now accept responses wrapped in a complete
+  Markdown JSON code fence.
+
 ## 0.1.0a0 - 2026-10-01
 
 ### Added

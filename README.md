@@ -26,6 +26,10 @@ low-cost model and a small sample because replay makes fresh provider calls.
 See [privacy and provider limits](docs/privacy-and-provider-limits.md) before
 recording application data.
 
+For a concrete two-provider walkthrough, the
+[support-ticket example](examples/support_ticket_classifier/README.md) records
+five source-model calls and replays them with a second provider.
+
 ## Development setup
 
 Switchcheck supports Python 3.10 through 3.12. Create and activate a virtual

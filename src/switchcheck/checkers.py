@@ -10,6 +10,11 @@ from typing import Any, Protocol
 
 from jsonschema import Draft202012Validator, SchemaError, ValidationError
 
+_JSON_FENCE = re.compile(
+    r"\A\s*```(?:json)?[ \t]*\r?\n(?P<body>.*?)\r?\n```\s*\Z",
+    flags=re.IGNORECASE | re.DOTALL,
+)
+
 
 @dataclass(frozen=True)
 class Verdict:
@@ -215,8 +220,12 @@ def _json_output(text: str | None, value: Any | None) -> Any:
         return value
     if text is None:
         raise ValueError("Output is missing JSON content")
+    json_text = text
+    fenced = _JSON_FENCE.fullmatch(json_text)
+    if fenced is not None:
+        json_text = fenced.group("body")
     try:
-        return json.loads(text)
+        return json.loads(json_text)
     except json.JSONDecodeError as error:
         raise ValueError(f"Output is not valid JSON: {error.msg}") from error
 

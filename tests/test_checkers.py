@@ -88,6 +88,46 @@ def test_json_schema_and_json_field_checkers(tmp_path) -> None:
     assert field_verdict.passed is False
 
 
+def test_json_checks_accept_markdown_fenced_json() -> None:
+    """Providers may wrap an otherwise valid JSON response in a Markdown fence."""
+    reference = '```json\n{"category": "billing", "priority": "high"}\n```'
+    candidate = '```JSON\n{"category": "billing", "priority": "high"}\n```'
+
+    schema_verdict = JsonSchemaChecker(
+        {
+            "type": "object",
+            "required": ["category", "priority"],
+        }
+    ).evaluate(
+        reference_text=None,
+        reference_json=None,
+        candidate_text=candidate,
+        candidate_json=None,
+    )
+    field_verdict = JsonFieldChecker("category").evaluate(
+        reference_text=reference,
+        reference_json=None,
+        candidate_text='{"category": "billing", "priority": "high"}',
+        candidate_json=None,
+    )
+
+    assert schema_verdict.passed is True
+    assert field_verdict.passed is True
+
+
+def test_json_checks_reject_json_surrounded_by_prose() -> None:
+    """Only a complete JSON response or a complete fenced block is accepted."""
+    verdict = JsonSchemaChecker({"type": "object"}).evaluate(
+        reference_text=None,
+        reference_json=None,
+        candidate_text='Here is the result: {"category": "billing"}',
+        candidate_json=None,
+    )
+
+    assert verdict.passed is False
+    assert verdict.reason.startswith("Output is not valid JSON")
+
+
 def test_invalid_checker_configuration_is_rejected_before_replay() -> None:
     """Malformed deterministic checkers fail fast without provider calls."""
     with pytest.raises(ValueError, match="Invalid regex"):
