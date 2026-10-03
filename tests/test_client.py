@@ -63,9 +63,7 @@ def test_chat_records_json_message_content_as_json(tmp_path) -> None:
     chat(
         model="fake/model",
         messages=[{"role": "user", "content": "Extract the invoice."}],
-        completion=lambda **_: {
-            "choices": [{"message": {"content": '{"invoice_id":"INV-1001"}'}}]
-        },
+        completion=lambda **_: {"choices": [{"message": {"content": '{"invoice_id":"INV-1001"}'}}]},
         project_directory=tmp_path,
     )
 
