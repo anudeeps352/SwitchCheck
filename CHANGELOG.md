@@ -11,6 +11,9 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Added
 
 - SQLite database initialization, schema versioning, and migration safeguards.
+- LiteLLM chat recording wrapper, durable run history, and `switchcheck runs`.
+- Candidate-model replay with dry-run selection, bounded concurrency, transient
+  connection retries, and independently persisted results.
 ## 0.1.0a0 - 2026-10-01
 
 ### Added
