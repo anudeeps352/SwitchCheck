@@ -16,6 +16,11 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   connection retries, and independently persisted results.
 - Deterministic exact, contains, regex, JSON Schema, and JSON-field checks with
   persisted explainable verdicts; candidate provider errors count as failures.
+- Self-contained replay reports with aggregate metrics, failure-first output
+  comparisons, checker details, and reproducibility metadata.
+- A synthetic invoice-extractor example and offline end-to-end smoke test.
+- Privacy, price-data, and provider-limit guidance for local recordings and
+  generated reports.
 ## 0.1.0a0 - 2026-10-01
 
 ### Added

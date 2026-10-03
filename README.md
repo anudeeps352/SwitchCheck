@@ -5,9 +5,26 @@ parameters will break their application. It records real calls, replays them
 against a candidate configuration, evaluates the outputs, and creates a local
 report.
 
-This repository has completed Stage 4 (reporting). The product scope and
-delivery plan are in [architecture.md](architecture.md) and
+The core workflow through Stage 4 (reporting) is complete, and Stage 5 adds
+the release-readiness example, smoke test, and operational guidance. The
+product scope and delivery plan are in [architecture.md](architecture.md) and
 [development-plan.md](development-plan.md).
+
+## Try the complete workflow offline
+
+The synthetic invoice-extractor example records two calls, replays them with
+deterministic JSON checks, and writes an HTML report. It uses no credentials or
+network access, making it a useful installation and CI smoke test:
+
+```powershell
+python examples/invoice_extractor/demo.py --fake --project .
+```
+
+To use a real LiteLLM-supported provider instead, omit `--fake` and provide
+the appropriate provider credentials in the environment. Start with a
+low-cost model and a small sample because replay makes fresh provider calls.
+See [privacy and provider limits](docs/privacy-and-provider-limits.md) before
+recording application data.
 
 ## Development setup
 
