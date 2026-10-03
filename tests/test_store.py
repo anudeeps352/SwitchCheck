@@ -5,7 +5,13 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-from switchcheck.store import SCHEMA_VERSION, database_path, initialize_database
+from switchcheck.store import (
+    SCHEMA_VERSION,
+    create_run,
+    database_path,
+    initialize_database,
+    list_runs,
+)
 
 
 def test_initialize_database_creates_schema(tmp_path: Path) -> None:
@@ -62,3 +68,25 @@ def test_initialize_database_rejects_newer_schema(tmp_path: Path) -> None:
         assert "newer" in str(error)
     else:
         raise AssertionError("Expected initialize_database to reject a newer schema.")
+
+
+def test_list_runs_filters_tag_and_orders_newest_first(tmp_path: Path) -> None:
+    """Run history supports the selection required by the replay workflow."""
+    first = create_run(
+        tmp_path,
+        model="first-model",
+        messages=[{"role": "user", "content": "first"}],
+        params={},
+        tag="first",
+    )
+    second = create_run(
+        tmp_path,
+        model="second-model",
+        messages=[{"role": "user", "content": "second"}],
+        params={},
+        tag="second",
+    )
+
+    assert [run.id for run in list_runs(tmp_path)] == [second.id, first.id]
+    assert [run.id for run in list_runs(tmp_path, tag="first")] == [first.id]
+    assert list_runs(tmp_path, tag="missing") == []
