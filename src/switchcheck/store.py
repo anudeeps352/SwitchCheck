@@ -108,6 +108,27 @@ class ReplayResult:
     error: str | None
 
 
+@dataclass(frozen=True)
+class Replay:
+    """The configuration captured when a replay session was started."""
+
+    id: str
+    created_at: str
+    tag: str | None
+    target_model: str
+    params: dict[str, Any]
+    checkers: list[dict[str, Any]]
+    package_version: str
+
+
+@dataclass(frozen=True)
+class ReportCase:
+    """A replay result paired with its recorded source output for reporting."""
+
+    run: Run
+    result: ReplayResult
+
+
 def database_path(project_directory: Path) -> Path:
     """Return the project-local database path without creating it."""
     return project_directory.resolve() / DATABASE_DIRECTORY / DATABASE_FILENAME
@@ -353,6 +374,44 @@ def list_replay_results(project_directory: Path, *, replay_id: str) -> list[Repl
     return [_replay_result_from_row(row) for row in rows]
 
 
+def get_replay(project_directory: Path, *, replay_id: str) -> Replay | None:
+    """Return a replay configuration, if it belongs to this project."""
+    path = database_path(project_directory)
+    if not path.is_file():
+        return None
+    with connect(path) as connection:
+        row = connection.execute("SELECT * FROM replays WHERE id = ?", (replay_id,)).fetchone()
+    return _replay_from_row(row) if row is not None else None
+
+
+def list_report_cases(project_directory: Path, *, replay_id: str) -> list[ReportCase]:
+    """Return replay cases with their source runs, failures first and order stable."""
+    path = database_path(project_directory)
+    if not path.is_file():
+        return []
+    with connect(path) as connection:
+        rows = connection.execute(
+            """
+            SELECT rr.*, r.id AS source_run_id, r.created_at AS run_created_at, r.tag AS run_tag,
+                   r.model AS run_model, r.params_json AS run_params_json,
+                   r.messages_json AS run_messages_json, r.tools_json AS run_tools_json,
+                   r.output_text AS run_output_text, r.output_json AS run_output_json,
+                   r.input_tokens AS run_input_tokens, r.output_tokens AS run_output_tokens,
+                   r.cost_usd AS run_cost_usd, r.latency_ms AS run_latency_ms,
+                   r.error AS run_error
+            FROM replay_results AS rr
+            JOIN runs AS r ON r.id = rr.run_id
+            WHERE rr.replay_id = ?
+            ORDER BY CASE WHEN rr.passed IS 1 THEN 1 ELSE 0 END, rr.id
+            """,
+            (replay_id,),
+        ).fetchall()
+    return [
+        ReportCase(run=_run_from_report_row(row), result=_replay_result_from_row(row))
+        for row in rows
+    ]
+
+
 def _dump_json(value: Any) -> str:
     return json.dumps(value, separators=(",", ":"), ensure_ascii=False)
 
@@ -391,4 +450,37 @@ def _replay_result_from_row(row: sqlite3.Row) -> ReplayResult:
         score=row["score"],
         verdict=json.loads(row["verdict_json"]) if row["verdict_json"] is not None else None,
         error=row["error"],
+    )
+
+
+def _replay_from_row(row: sqlite3.Row) -> Replay:
+    return Replay(
+        id=row["id"],
+        created_at=row["created_at"],
+        tag=row["tag"],
+        target_model=row["target_model"],
+        params=json.loads(row["params_json"] or "{}"),
+        checkers=json.loads(row["checker_json"]),
+        package_version=row["package_version"],
+    )
+
+
+def _run_from_report_row(row: sqlite3.Row) -> Run:
+    return Run(
+        id=row["source_run_id"],
+        created_at=row["run_created_at"],
+        tag=row["run_tag"],
+        model=row["run_model"],
+        params=json.loads(row["run_params_json"]),
+        messages=json.loads(row["run_messages_json"]),
+        tools=json.loads(row["run_tools_json"]) if row["run_tools_json"] is not None else None,
+        output_text=row["run_output_text"],
+        output_json=json.loads(row["run_output_json"])
+        if row["run_output_json"] is not None
+        else None,
+        input_tokens=row["run_input_tokens"],
+        output_tokens=row["run_output_tokens"],
+        cost_usd=row["run_cost_usd"],
+        latency_ms=row["run_latency_ms"],
+        error=row["run_error"],
     )
