@@ -8,6 +8,7 @@ from typing import Annotated
 import typer
 
 from switchcheck import __version__
+from switchcheck.checkers import parse_checkers
 from switchcheck.replay import replay, replay_dry_run
 from switchcheck.store import initialize_database, list_runs
 
@@ -72,9 +73,20 @@ def replay_command(
     dry_run: Annotated[
         bool, typer.Option(help="Show the selection without provider calls.")
     ] = False,
+    checks: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--check",
+            help="exact, contains:TEXT, regex:PATTERN, json-schema:FILE, or json-field:PATH.",
+        ),
+    ] = None,
     path: Annotated[Path, typer.Option(help="Project directory to inspect.")] = Path("."),
 ) -> None:
     """Replay recorded calls against a candidate model."""
+    try:
+        checkers = parse_checkers(checks or [], base_path=path)
+    except ValueError as error:
+        raise typer.BadParameter(str(error), param_hint="--check") from error
     if dry_run:
         count = replay_dry_run(path, tag=tag, limit=limit)
         typer.echo(f"Selected {count} runs. Cost estimate: unavailable.")
@@ -85,8 +97,10 @@ def replay_command(
         tag=tag,
         limit=limit,
         concurrency=concurrency,
+        checkers=checkers,
     )
     typer.echo(
         f"Replay {summary.replay_id}: {summary.completed_count} completed, "
-        f"{summary.failed_count} failed (of {summary.selected_count})."
+        f"{summary.failed_count} provider failures, {summary.passed_count}/"
+        f"{summary.selected_count} passed ({summary.pass_rate:.0%})."
     )

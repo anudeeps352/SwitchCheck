@@ -14,6 +14,8 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - LiteLLM chat recording wrapper, durable run history, and `switchcheck runs`.
 - Candidate-model replay with dry-run selection, bounded concurrency, transient
   connection retries, and independently persisted results.
+- Deterministic exact, contains, regex, JSON Schema, and JSON-field checks with
+  persisted explainable verdicts; candidate provider errors count as failures.
 ## 0.1.0a0 - 2026-10-01
 
 ### Added

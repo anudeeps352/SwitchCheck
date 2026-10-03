@@ -102,6 +102,9 @@ class ReplayResult:
     output_tokens: int | None
     cost_usd: float | None
     latency_ms: int | None
+    passed: bool | None
+    score: float | None
+    verdict: list[dict[str, Any]] | None
     error: str | None
 
 
@@ -229,7 +232,12 @@ def list_runs(project_directory: Path, *, tag: str | None = None, limit: int = 2
 
 
 def create_replay(
-    project_directory: Path, *, target_model: str, tag: str | None, params: dict[str, Any]
+    project_directory: Path,
+    *,
+    target_model: str,
+    tag: str | None,
+    params: dict[str, Any],
+    checker_config: list[dict[str, Any]] | None = None,
 ) -> str:
     """Create a replay session before any candidate provider call is made."""
     path = initialize_database(project_directory)
@@ -248,7 +256,7 @@ def create_replay(
                 tag,
                 target_model,
                 _dump_json(params),
-                "[]",
+                _dump_json(checker_config or []),
                 __version__,
             ),
         )
@@ -268,6 +276,9 @@ def create_replay_result(project_directory: Path, *, replay_id: str, run_id: str
         output_tokens=None,
         cost_usd=None,
         latency_ms=None,
+        passed=None,
+        score=None,
+        verdict=None,
         error=None,
     )
     with connect(path) as connection:
@@ -293,6 +304,9 @@ def update_replay_result(
     output_tokens: int | None = None,
     cost_usd: float | None = None,
     latency_ms: int | None = None,
+    passed: bool | None = None,
+    score: float | None = None,
+    verdict: list[dict[str, Any]] | None = None,
     error: str | None = None,
 ) -> ReplayResult:
     """Save one completed candidate outcome without affecting other results."""
@@ -302,7 +316,7 @@ def update_replay_result(
             """
             UPDATE replay_results
             SET output_text = ?, output_json = ?, input_tokens = ?, output_tokens = ?,
-                cost_usd = ?, latency_ms = ?, error = ?
+                cost_usd = ?, latency_ms = ?, passed = ?, score = ?, verdict_json = ?, error = ?
             WHERE id = ?
             """,
             (
@@ -312,6 +326,9 @@ def update_replay_result(
                 output_tokens,
                 cost_usd,
                 latency_ms,
+                int(passed) if passed is not None else None,
+                score,
+                _dump_json(verdict) if verdict is not None else None,
                 error,
                 result_id,
             ),
@@ -370,5 +387,8 @@ def _replay_result_from_row(row: sqlite3.Row) -> ReplayResult:
         output_tokens=row["output_tokens"],
         cost_usd=row["cost_usd"],
         latency_ms=row["latency_ms"],
+        passed=bool(row["passed"]) if row["passed"] is not None else None,
+        score=row["score"],
+        verdict=json.loads(row["verdict_json"]) if row["verdict_json"] is not None else None,
         error=row["error"],
     )
