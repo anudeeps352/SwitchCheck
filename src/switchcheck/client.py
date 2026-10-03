@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from pathlib import Path
 from time import perf_counter
@@ -99,13 +100,23 @@ def _response_fields(
     usage = data.get("usage", {}) if isinstance(data, dict) else {}
     return (
         content if isinstance(content, str) else None,
-        data if isinstance(data, dict) else None,
+        _json_content(content),
         _integer(usage.get("prompt_tokens")),
         _integer(usage.get("completion_tokens")),
         _number(data.get("_hidden_params", {}).get("response_cost"))
         if isinstance(data, dict)
         else None,
     )
+
+
+def _json_content(content: Any) -> Any | None:
+    """Decode a JSON assistant message when one was returned."""
+    if not isinstance(content, str):
+        return None
+    try:
+        return json.loads(content)
+    except json.JSONDecodeError:
+        return None
 
 
 def _integer(value: Any) -> int | None:
