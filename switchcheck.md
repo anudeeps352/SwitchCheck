@@ -101,10 +101,10 @@ Implemented today:
 - versioned reference/context/structured-criteria contracts, import-time
   rejection of unsupported cases, and provider-free dataset eligibility checks;
 - a typed deterministic evaluator core and explicit four-state verdict model.
+- initial sequential dataset execution with persisted candidate results.
 
 Not yet implemented:
 
-- executing imported datasets as experiments;
 - wiring evaluator configurations into dataset experiments and reports;
 - four-state experiment results;
 - calibrated criteria judging; and

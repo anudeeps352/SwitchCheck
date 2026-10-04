@@ -123,6 +123,88 @@ def test_dataset_import_command_creates_labeled_cases(tmp_path: Path) -> None:
     assert "1/1 cases eligible" in check.stdout
 
 
+def test_dataset_import_accepts_one_task_type_for_all_cases(tmp_path: Path) -> None:
+    source = tmp_path / "cases.jsonl"
+    source.write_text(
+        json.dumps(
+            {
+                "messages": [{"role": "user", "content": "Classify this"}],
+                "expected": "billing",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "dataset",
+            "import",
+            "labels-v1",
+            str(source),
+            "--task-type",
+            "classification",
+            "--path",
+            str(tmp_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "Imported 1 case" in result.stdout
+
+
+def test_evaluate_command_runs_imported_dataset(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "cases.jsonl"
+    source.write_text(
+        json.dumps(
+            {
+                "messages": [{"role": "user", "content": "Classify this"}],
+                "expected": "billing",
+                "evaluators": ["exact"],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    imported = runner.invoke(
+        app,
+        [
+            "dataset",
+            "import",
+            "labels-v1",
+            str(source),
+            "--task-type",
+            "classification",
+            "--path",
+            str(tmp_path),
+        ],
+    )
+    assert imported.exit_code == 0
+
+    monkeypatch.setattr(
+        "switchcheck.experiments._load_litellm_completion",
+        lambda: lambda **_: {"choices": [{"message": {"content": "billing"}}]},
+    )
+    evaluated = runner.invoke(
+        app,
+        [
+            "evaluate",
+            "--dataset",
+            "labels-v1",
+            "--model",
+            "fake/candidate",
+            "--path",
+            str(tmp_path),
+        ],
+    )
+
+    assert evaluated.exit_code == 0
+    assert "1/1 passed (100%)" in evaluated.stdout
+
+
 def test_report_writes_html(tmp_path: Path) -> None:
     """The CLI renders a persisted replay without provider credentials."""
     create_run(
