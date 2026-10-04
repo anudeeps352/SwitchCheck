@@ -9,6 +9,12 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- Narrowed the public MVP to classification and made the planned primary UX one
+  `switchcheck.yaml`, one `switchcheck test` command, and one multi-model report.
+  The other prototype task families are now explicitly future candidates rather
+  than initial support claims.
+- Reordered development around workflow simplification and deferred the UI
+  until the CLI/config contract is stable.
 - Added the planned assisted dataset-building lifecycle: automated sampling,
   redaction/deduplication, authoritative enrichment, LLM drafts, provenance,
   review routing, approval policies, immutable versions, and refresh.

@@ -1,4 +1,10 @@
-# Support-ticket model comparison
+# Support-ticket model comparison (legacy prototype)
+
+> This example documents the older record/replay workflow. The planned public
+> MVP replaces these steps with one `switchcheck.yaml` and one
+> `switchcheck test` command. Keep this example for compatibility until the new
+> classification example is implemented; do not use it as the primary
+> onboarding path.
 
 This dummy application classifies five synthetic customer-support tickets. It
 uses Switchcheck's `client.chat()` wrapper, so each normal model call is also

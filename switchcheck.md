@@ -1,13 +1,20 @@
 # Switchcheck product brief
 
-> Will this model, prompt, or parameter change preserve the behavior my
-> application explicitly depends on?
+> Compare model or prompt changes on the classification behavior your
+> application depends on.
 
-Switchcheck answers that question for ten supported categories of repeatable,
-single-interaction LLM tasks. It is not a universal model grader and cannot
-establish that one model can replace another for arbitrary applications.
+Switchcheck is being simplified around one initial use case: classification.
+The MVP will use one readable configuration file, one command, and one local
+comparison report.
 
-The normative boundary is
+```text
+switchcheck.yaml -> switchcheck test -> HTML report
+```
+
+Switchcheck is not a universal LLM grader and does not establish that one model
+can replace another for arbitrary applications.
+
+The normative MVP boundary is
 [docs/supported-evaluation-scope.md](docs/supported-evaluation-scope.md). The
 technical design is in [architecture.md](architecture.md), and delivery order is
 in [development-plan.md](development-plan.md).
@@ -15,130 +22,131 @@ in [development-plan.md](development-plan.md).
 ## Problem
 
 Teams change models, prompts, and parameters to reduce cost, improve latency,
-handle deprecations, or fix behavior. Comparing candidate output with incumbent
-output is not enough: the incumbent can be wrong, and many valid responses are
-worded differently.
+handle deprecations, or fix behavior. Public benchmarks do not prove that a
+candidate still assigns the labels required by a particular application.
 
-Switchcheck turns known application expectations into repeatable cases, runs a
-candidate configuration, evaluates only with permitted evidence, and reports
-what passed, failed, needs review, or errored.
+Switchcheck runs reviewed application examples against each configured model,
+compares the returned labels with expected labels, and shows regressions,
+accuracy, latency, usage, and errors in one report.
+
+## Initial user
+
+The first user is a developer maintaining a single-turn classifier such as:
+
+- support category or priority classification;
+- intent detection;
+- sentiment classification;
+- document routing;
+- moderation or escalation labels; or
+- another fixed-label business decision.
+
+## MVP workflow
+
+The user creates `switchcheck.yaml`:
+
+```yaml
+version: 1
+task: classification
+
+prompt: |
+  Classify the request. Return only JSON.
+  Request: {{input}}
+
+models:
+  - openai/gpt-4o-mini
+  - anthropic/claude-haiku-4-5
+
+cases:
+  - id: duplicate-charge
+    input: I was charged twice for my subscription.
+    expected:
+      category: billing
+      subcategory: duplicate_charge
+
+  - id: cancellation
+    input: I want to cancel my subscription.
+    expected:
+      category: account
+      subcategory: cancel_subscription
+```
+
+Then runs:
+
+```powershell
+switchcheck test
+```
+
+The command discovers `switchcheck.yaml`, validates it before provider calls,
+runs every case against every model, applies classification checks, persists the
+run internally, and writes one HTML comparison report. There is no required
+`init`, dataset import, eligibility command, evaluator selection, or separate
+report command in the primary workflow.
 
 ## Product promise
 
-Switchcheck determines whether a change preserves expected behavior for
-supported tasks whose outcomes or observable criteria were defined before the
-candidate response was generated.
+For the MVP, Switchcheck answers:
 
-It supports:
+> On these reviewed classification cases, which configured model or prompt
+> preserves the expected labels?
 
-1. classification;
-2. structured extraction;
-3. structured transformation;
-4. one proposed tool/function call;
-5. constrained discrete decisions;
-6. factual QA with expected facts;
-7. support/policy responses with supplied rules;
-8. summaries with supplied source and criteria;
-9. RAG answers with supplied retrieved context; and
-10. single-turn free text with a concrete observable rubric.
+It does not answer:
 
-If a proposed evaluation is not independently evaluable, has no predefined
-notion of acceptable behavior, lacks required reference evidence, or falls
-outside these task types, Switchcheck rejects it as unsupported. It does not
-send it to a generic judge.
+> Is this model generally better, or can it replace another model everywhere?
 
-## User workflow
+## Ground truth
 
-```text
-record/import candidate inputs
-    -> automatically redact, deduplicate, sample, and enrich
-    -> create DRAFT cases with provenance
-    -> review uncertainty or apply an authoritative approval policy
-    -> freeze an APPROVED dataset version
-    -> validate eligibility without provider calls
-    -> run candidate model/prompt/parameters
-    -> evaluate against expected evidence
-    -> inspect PASS / FAIL / REVIEW / ERROR and task-specific metrics
-```
+Expected labels must exist before a candidate response is evaluated. Initially,
+they are written in the configuration by the user or copied from a trusted
+source. A model output is not automatically treated as correct.
 
-Recorded application traffic is useful input for building a dataset, but the
-recorded model output is never automatically ground truth.
+Assisted case creation from production inputs may be added later. Suggested
+labels must remain drafts until confirmed by a person or authoritative rule.
 
-Expected answers can be automated safely when they come from a configured
-system of record, deterministic business rule/test oracle, or trusted versioned
-dataset. An LLM may suggest labels and criteria to reduce reviewer effort, but
-those suggestions remain drafts until independently confirmed. Review automation
-focuses human attention on disagreements, low-confidence cases, novel clusters,
-and a sample of automatically approved cases rather than requiring every value
-to be typed manually.
+## MVP evaluation
 
-## Evaluation principles
+The classification runner will:
 
-- Prefer deterministic checks whenever correctness can be represented directly.
-- Never require an LLM judge for classification, extraction, structured
-  transformation, one-call tool selection, or labeled decisions.
-- Use a criteria judge only for eligible free-text tasks with explicit criteria
-  and required reference/context.
-- Blind the judge to model/provider identity, cost, latency, prestige, and which
-  response came from the candidate.
-- Treat supplied context—not judge world knowledge—as truth for policy,
-  summarization, and RAG cases.
-- Calibrate each complete judge configuration against human-reviewed labels
-  before presenting it as trusted.
-- Keep `REVIEW` and `ERROR` visible; neither counts as `PASS`.
+- require a scalar label or a JSON object of label fields in `expected`;
+- parse the candidate response;
+- compare every expected field exactly;
+- retain provider and parse errors;
+- calculate case accuracy and per-field accuracy;
+- calculate per-label precision, recall, and F1 where meaningful; and
+- show every case and model in a single report.
 
-## Current status
+Evaluator classes are an implementation detail. Users should not have to select
+`ExactEvaluator`, `FieldEvaluator`, or `ClassificationMetricsEvaluator` for the
+normal classification workflow.
 
-Implemented today:
+## Later task types
 
-- local recording of non-streaming LiteLLM chat calls;
-- replay against a candidate model;
-- legacy deterministic exact, contains, regex, JSON Schema, and JSON-field
-  checks;
-- project-local SQLite persistence and static HTML replay reports;
-- labeled JSONL dataset import;
-- the ten-value `TaskType` enum; and
-- versioned reference/context/structured-criteria contracts, import-time
-  rejection of unsupported cases, and provider-free dataset eligibility checks;
-- a typed deterministic evaluator core and explicit four-state verdict model.
-- initial sequential dataset execution with persisted candidate results.
-- task-aware experiment metrics, self-contained reports, and an offline
-  labeled-evaluation example.
+Structured extraction is the leading candidate after classification because it
+can also be evaluated deterministically. Structured transformation, tool
+selection, constrained decisions, factual QA, support responses,
+summarization, RAG answers, and rubric-based free text are research/backlog
+items. They are not part of the MVP promise.
 
-Not yet implemented:
+A task type becomes public only after it has a simple config contract, automatic
+safe evaluator selection, tests, useful reports, and evidence of user demand.
 
-- wiring evaluator configurations into dataset experiments and reports;
-- parallel/resumable execution and experiment-to-experiment comparison;
-- four-state experiment results;
-- calibrated criteria judging; and
-- human-review and calibration workflows.
-- assisted dataset drafting, authoritative enrichment, provenance, approval,
-  immutable versioning, and automatic refresh.
+## Current prototype status
 
-This distinction must remain visible in user-facing documentation. Planned
-capabilities must not be described as shipped.
+The repository already contains record/replay commands, dataset import,
+experimental task types, deterministic evaluator classes, SQLite persistence,
+and HTML reports. These pieces are useful implementation material, but they do
+not define the intended user experience.
 
-## Explicit non-goals
+During simplification:
 
-The initial product does not support creative generation, pure style or
-preference comparisons, open-ended brainstorming, autonomous multi-step agents,
-coding-agent repository changes, generic reasoning/intelligence scores,
-personalized long-running assistant quality, end-to-end retrieval quality, or
-safety-critical certification.
+- legacy commands remain available until the new workflow replaces them;
+- no new features should be added to record/replay;
+- experimental task types must not be advertised as supported;
+- new development should serve `switchcheck test`; and
+- internal abstractions should be removed when they do not make the primary
+  classification flow clearer.
 
-A future feature can enter the supported set only after Switchcheck introduces
-a named task type, defines its required evidence and evaluator contract, adds
-rejection behavior for invalid cases, and validates it with representative
-human-reviewed data.
+## Product success criterion
 
-## Product success criteria
-
-Switchcheck succeeds when a developer can make a narrower, defensible statement:
-
-> On this versioned dataset of supported application tasks, this candidate
-> configuration preserved the predefined required behavior, with these failures,
-> reviews, errors, metrics, and reproducibility details.
-
-It should never encourage the broader claim:
-
-> This candidate can replace the incumbent for any LLM use case.
+A new user should be able to copy one example config, add an API key, and obtain
+a useful two-model classification comparison without understanding Switchcheck's
+database, evaluator registry, or dataset lifecycle.
