@@ -102,10 +102,13 @@ Implemented today:
   rejection of unsupported cases, and provider-free dataset eligibility checks;
 - a typed deterministic evaluator core and explicit four-state verdict model.
 - initial sequential dataset execution with persisted candidate results.
+- task-aware experiment metrics, self-contained reports, and an offline
+  labeled-evaluation example.
 
 Not yet implemented:
 
 - wiring evaluator configurations into dataset experiments and reports;
+- parallel/resumable execution and experiment-to-experiment comparison;
 - four-state experiment results;
 - calibrated criteria judging; and
 - human-review and calibration workflows.

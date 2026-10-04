@@ -12,6 +12,7 @@ from switchcheck import __version__
 from switchcheck.checkers import parse_checkers
 from switchcheck.datasets import import_jsonl_dataset
 from switchcheck.eligibility import check_dataset_eligibility
+from switchcheck.experiment_report import write_experiment_report
 from switchcheck.experiments import evaluate_dataset
 from switchcheck.replay import replay, replay_dry_run
 from switchcheck.report import write_report
@@ -157,6 +158,7 @@ def evaluate_command(
             schema=schema_value,
             numeric_tolerance=numeric_tolerance,
         )
+        report_path = write_experiment_report(path, experiment_id=summary.experiment_id)
     except (OSError, json.JSONDecodeError, ValueError) as error:
         raise typer.BadParameter(str(error), param_hint="--dataset") from error
     typer.echo(
@@ -164,6 +166,21 @@ def evaluate_command(
         f"passed ({summary.pass_rate:.0%}), {summary.failed_count} failed, "
         f"{summary.review_count} review, {summary.error_count} errors."
     )
+    typer.echo(f"Wrote experiment report to {report_path}")
+
+
+@app.command("experiment-report")
+def experiment_report_command(
+    experiment_id: Annotated[str, typer.Option("--experiment", help="Experiment ID.")],
+    output: Annotated[Path | None, typer.Option(help="Destination HTML file.")] = None,
+    path: Annotated[Path, typer.Option(help="Project directory to inspect.")] = Path("."),
+) -> None:
+    """Regenerate a self-contained labeled experiment report."""
+    try:
+        destination = write_experiment_report(path, experiment_id=experiment_id, output=output)
+    except ValueError as error:
+        raise typer.BadParameter(str(error), param_hint="--experiment") from error
+    typer.echo(f"Wrote experiment report to {destination}")
 
 
 @app.command("replay")

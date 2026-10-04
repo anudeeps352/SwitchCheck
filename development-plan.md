@@ -18,9 +18,9 @@ store structured criteria, reference/context evidence, and presence information;
 task-specific eligibility can be checked without a provider call.
 
 The product now has an initial sequential `evaluate` path with four-state
-persistence for configured deterministic evaluators. Criteria judging,
-parallel/resumable execution, classification aggregates, dedicated experiment
-reports, and the full task-specific metric set are planned—not shipped.
+persistence, task-aware metrics, a self-contained report, and an offline
+end-to-end example. Criteria judging, parallel/resumable execution, experiment
+comparison, and the full metadata-grouped metric set are planned—not shipped.
 
 ## Delivery roadmap
 
@@ -109,8 +109,9 @@ switchcheck dataset refresh support-v1 --tag support
 
 - Replace boolean-only experiment outcomes with `PASS | FAIL | REVIEW | ERROR`.
 - Define aggregation denominators explicitly; never drop review/error cases.
-- Add accuracy, per-label precision/recall/F1, confusion matrices, field/case
-  accuracy, tool/argument accuracy, and metadata-grouped failure rates.
+- Accuracy, per-label precision/recall/F1, confusion data, field accuracy, and
+  tool/argument accuracy are available in initial reports. Add case accuracy by
+  task and metadata-grouped failure rates.
 - Keep legacy replay reports honest about their boolean checker semantics until
   they migrate to the experiment result model.
 
