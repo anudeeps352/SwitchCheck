@@ -20,6 +20,8 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - A synthetic invoice-extractor example and offline end-to-end smoke test.
 - A two-provider support-ticket example for recording one model and replaying
   the same cases against another.
+- Source-versus-candidate latency, token, cost, and pass-rate metrics in replay
+  reports.
 - Privacy, price-data, and provider-limit guidance for local recordings and
   generated reports.
 
@@ -27,6 +29,9 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 - JSON Schema and JSON-field checks now accept responses wrapped in a complete
   Markdown JSON code fence.
+- Replay selection now excludes recorded provider errors, while run history
+  continues to retain and display them for diagnosis.
+- Report checker labels identify configured JSON-field paths.
 
 ## 0.1.0a0 - 2026-10-01
 

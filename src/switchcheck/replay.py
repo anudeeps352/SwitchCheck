@@ -50,7 +50,7 @@ def replay(
         raise ValueError("concurrency must be at least 1")
     if attempts < 1:
         raise ValueError("attempts must be at least 1")
-    runs = list_runs(project_directory, tag=tag, limit=limit)
+    runs = list_runs(project_directory, tag=tag, limit=limit, include_errors=False)
     active_checkers = checkers or []
     replay_id = create_replay(
         project_directory,
@@ -86,7 +86,7 @@ def replay(
 
 def replay_dry_run(project_directory: Path, *, tag: str | None = None, limit: int = 20) -> int:
     """Return selection size without creating a replay or contacting a provider."""
-    return len(list_runs(project_directory, tag=tag, limit=limit))
+    return len(list_runs(project_directory, tag=tag, limit=limit, include_errors=False))
 
 
 def _replay_one(

@@ -90,3 +90,29 @@ def test_list_runs_filters_tag_and_orders_newest_first(tmp_path: Path) -> None:
     assert [run.id for run in list_runs(tmp_path)] == [second.id, first.id]
     assert [run.id for run in list_runs(tmp_path, tag="first")] == [first.id]
     assert list_runs(tmp_path, tag="missing") == []
+
+
+def test_list_runs_can_exclude_provider_errors(tmp_path: Path) -> None:
+    successful = create_run(
+        tmp_path,
+        model="source/model",
+        messages=[{"role": "user", "content": "successful"}],
+        params={},
+        tag="comparison",
+    )
+    failed = create_run(
+        tmp_path,
+        model="source/model",
+        messages=[{"role": "user", "content": "failed"}],
+        params={},
+        tag="comparison",
+        error="NotFoundError: invalid model",
+    )
+
+    assert [run.id for run in list_runs(tmp_path, tag="comparison")] == [
+        failed.id,
+        successful.id,
+    ]
+    assert [run.id for run in list_runs(tmp_path, tag="comparison", include_errors=False)] == [
+        successful.id
+    ]

@@ -234,18 +234,29 @@ def create_run(
     return run
 
 
-def list_runs(project_directory: Path, *, tag: str | None = None, limit: int = 20) -> list[Run]:
-    """Return newest recorded runs, optionally limited to an exact tag."""
+def list_runs(
+    project_directory: Path,
+    *,
+    tag: str | None = None,
+    limit: int = 20,
+    include_errors: bool = True,
+) -> list[Run]:
+    """Return newest runs, optionally filtered by tag and provider success."""
     if limit < 1:
         raise ValueError("limit must be at least 1")
     path = database_path(project_directory)
     if not path.is_file():
         return []
     query = "SELECT * FROM runs"
-    parameters: tuple[object, ...] = ()
+    conditions: list[str] = []
+    parameters: list[object] = []
     if tag is not None:
-        query += " WHERE tag = ?"
-        parameters = (tag,)
+        conditions.append("tag = ?")
+        parameters.append(tag)
+    if not include_errors:
+        conditions.append("error IS NULL")
+    if conditions:
+        query += " WHERE " + " AND ".join(conditions)
     query += " ORDER BY created_at DESC LIMIT ?"
     with connect(path) as connection:
         rows = connection.execute(query, (*parameters, limit)).fetchall()

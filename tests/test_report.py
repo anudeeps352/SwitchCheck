@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from switchcheck.checkers import ContainsChecker
 from switchcheck.replay import replay
-from switchcheck.report import write_report
+from switchcheck.report import _checker_label, write_report
 from switchcheck.store import create_run
 
 
@@ -16,6 +16,10 @@ def test_report_is_self_contained_and_lists_failures_first(tmp_path) -> None:
         messages=[{"role": "user", "content": "one"}],
         params={},
         output_text="reference <script>alert(1)</script>",
+        input_tokens=10,
+        output_tokens=2,
+        cost_usd=0.01,
+        latency_ms=100,
     )
     create_run(
         tmp_path,
@@ -23,12 +27,18 @@ def test_report_is_self_contained_and_lists_failures_first(tmp_path) -> None:
         messages=[{"role": "user", "content": "two"}],
         params={},
         output_text="reference two",
+        input_tokens=20,
+        output_tokens=4,
+        cost_usd=0.02,
+        latency_ms=300,
     )
 
     def fake_completion(**kwargs):
         content = kwargs["messages"][0]["content"]
         return {
-            "choices": [{"message": {"content": "candidate one" if content == "one" else "two"}}]
+            "choices": [{"message": {"content": "candidate one" if content == "one" else "two"}}],
+            "usage": {"prompt_tokens": 5, "completion_tokens": 1},
+            "_hidden_params": {"response_cost": 0.001},
         }
 
     summary = replay(
@@ -50,6 +60,11 @@ def test_report_is_self_contained_and_lists_failures_first(tmp_path) -> None:
     assert "Reproducibility" in page
     assert "<footer>" in page
     assert 'aria-label="Replay summary"' in page
+    assert 'aria-label="Source and candidate performance"' in page
+    assert "Average latency" in page
+    assert "200 ms" in page
+    assert "Total input tokens" in page
+    assert "$0.030000" in page
 
 
 def test_report_rejects_unknown_replay(tmp_path) -> None:
@@ -60,3 +75,10 @@ def test_report_rejects_unknown_replay(tmp_path) -> None:
         assert "was not found" in str(error)
     else:
         raise AssertionError("Expected an unknown replay to fail")
+
+
+def test_report_identifies_json_field_checker_path() -> None:
+    assert (
+        _checker_label({"checker": "json-field", "details": {"path": "priority"}})
+        == "json-field:priority"
+    )
