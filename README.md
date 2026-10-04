@@ -69,8 +69,19 @@ switchcheck evaluate --dataset invoice-v1 --model openai/gpt-4o-mini `
 
 The command validates the complete dataset and evaluator setup before provider
 calls, persists pending and terminal results, and reports counts for `PASS`,
-`FAIL`, `REVIEW`, and `ERROR`. Criteria judging, classification aggregates, and
-dedicated experiment HTML reports are not implemented yet.
+`FAIL`, `REVIEW`, and `ERROR`. It also writes a self-contained experiment HTML
+report with applicable field, tool, argument, and classification metrics.
+Criteria judging and per-case evaluator configuration are not implemented yet.
+
+Run the complete labeled-evaluation workflow offline:
+
+```powershell
+python examples/dataset_evaluation/demo.py --project .
+```
+
+The demo imports two extraction cases, runs a fake candidate with no credentials
+or network, persists one pass and one failure, calculates metrics, and writes an
+HTML report under `.switchcheck/reports/`.
 
 Free-text task types additionally use structured `criteria` records and, where
 required, `context` or `reference`. See the

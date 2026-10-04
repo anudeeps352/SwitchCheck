@@ -203,6 +203,8 @@ def test_evaluate_command_runs_imported_dataset(
 
     assert evaluated.exit_code == 0
     assert "1/1 passed (100%)" in evaluated.stdout
+    assert "Wrote experiment report" in evaluated.stdout
+    assert len(list((tmp_path / ".switchcheck" / "reports").glob("experiment-*.html"))) == 1
 
 
 def test_report_writes_html(tmp_path: Path) -> None:

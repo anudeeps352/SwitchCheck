@@ -260,13 +260,13 @@ read-only dataset eligibility command, four-state verdict types, and a typed
 deterministic evaluator core for exact, field, schema, numeric, pattern, tool
 call, required-fact, and classification-metric evaluation.
 
-An initial sequential dataset runner and four-state experiment persistence are
-implemented for exact, field, schema, numeric, one-tool-call, and required-fact
-evaluation. Schema and numeric tolerance are currently experiment-level CLI
-configuration.
+An initial sequential dataset runner, four-state experiment persistence,
+task-aware aggregate metrics, and self-contained reports are implemented for
+exact, field, schema, numeric, one-tool-call, and required-fact evaluation.
+Schema and numeric tolerance are currently experiment-level CLI configuration.
 
 Not yet implemented: per-case evaluator configuration, parallel/resumable
-dataset execution, criteria judging, judge calibration, classification
-aggregates, and dedicated experiment reports. The
+dataset execution, criteria judging, judge calibration, richer metadata-grouped
+metrics, and report comparisons. The
 roadmap defines the delivery order and must not describe these as current
 capabilities.

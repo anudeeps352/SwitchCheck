@@ -254,6 +254,19 @@ class EvaluationResult:
     error: str | None
 
 
+@dataclass(frozen=True)
+class Experiment:
+    """One immutable labeled-dataset experiment configuration."""
+
+    id: str
+    created_at: str
+    dataset_id: str
+    target_model: str
+    params: dict[str, Any]
+    evaluator_config: dict[str, Any]
+    package_version: str
+
+
 def database_path(project_directory: Path) -> Path:
     """Return the project-local database path without creating it."""
     return project_directory.resolve() / DATABASE_DIRECTORY / DATABASE_FILENAME
@@ -644,6 +657,18 @@ def list_evaluation_results(
     return [_evaluation_result_from_row(row) for row in rows]
 
 
+def get_experiment(project_directory: Path, *, experiment_id: str) -> Experiment | None:
+    """Return one persisted experiment configuration."""
+    path = database_path(project_directory)
+    if not path.is_file():
+        return None
+    with connect(path) as connection:
+        row = connection.execute(
+            "SELECT * FROM experiments WHERE id = ?", (experiment_id,)
+        ).fetchone()
+    return _experiment_from_row(row) if row is not None else None
+
+
 def list_runs(
     project_directory: Path,
     *,
@@ -909,6 +934,18 @@ def _evaluation_result_from_row(row: sqlite3.Row) -> EvaluationResult:
         score=row["score"],
         verdict=json.loads(row["verdict_json"]) if row["verdict_json"] is not None else None,
         error=row["error"],
+    )
+
+
+def _experiment_from_row(row: sqlite3.Row) -> Experiment:
+    return Experiment(
+        id=row["id"],
+        created_at=row["created_at"],
+        dataset_id=row["dataset_id"],
+        target_model=row["target_model"],
+        params=json.loads(row["params_json"]),
+        evaluator_config=json.loads(row["evaluator_config_json"]),
+        package_version=row["package_version"],
     )
 
 

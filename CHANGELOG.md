@@ -27,6 +27,8 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 - Dataset-level `--task-type` defaults and an initial `switchcheck evaluate`
   workflow with preflight validation and persisted four-state results.
+- Task-aware experiment metrics, self-contained HTML reports, automatic report
+  generation, and an offline labeled-evaluation demo.
 
 - SQLite database initialization, schema versioning, and migration safeguards.
 - LiteLLM chat recording wrapper, durable run history, and `switchcheck runs`.
