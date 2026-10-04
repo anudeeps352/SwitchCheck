@@ -7,6 +7,7 @@ import html
 import json
 from datetime import datetime, timezone
 from pathlib import Path
+from statistics import fmean, median
 from typing import Any
 
 from switchcheck.store import ReportCase, database_path, get_replay, list_report_cases
@@ -36,6 +37,7 @@ def _render(replay: Any, cases: list[ReportCase], database: Path) -> str:
         case.result.passed is False and case.result.error is None for case in cases
     )
     pass_rate = passed / len(cases) if cases else 0
+    comparison = _comparison_table(replay, cases, pass_rate)
     cards = "".join(_case_card(case, index + 1) for index, case in enumerate(cases))
     if not cards:
         cards = '<p class="empty">This replay has no results.</p>'
@@ -67,6 +69,7 @@ h1 {{ margin-bottom: .15rem; }} .subtle {{ color: #68707a; }}
 .outputs {{ display:grid; grid-template-columns:1fr 1fr; gap:1rem; }} pre {{ overflow:auto; white-space:pre-wrap; background:#1f2328; color:#f0f4f8; padding:.8rem; border-radius:5px; }}
 dl {{ display:grid; grid-template-columns:max-content 1fr; gap:.45rem 1rem; }} dt {{ font-weight:700; }} dd {{ margin:0; overflow-wrap:anywhere; }}
 table {{ width:100%; border-collapse:collapse; }} th,td {{ padding:.5rem; text-align:left; border-bottom:1px solid #9aa4ad; vertical-align:top; }}
+.table-scroll {{ overflow-x:auto; }}
 @media (max-width: 700px) {{ .metrics, .outputs {{ grid-template-columns:1fr; }} }}
 </style></head><body>
 <h1>Switchcheck replay report</h1><p class="subtle">Failures appear first. This file is self-contained; treat it as sensitive because it contains recorded outputs.</p>
@@ -75,7 +78,53 @@ table {{ width:100%; border-collapse:collapse; }} th,td {{ padding:.5rem; text-a
 <div class="metric"><span>Passed</span><strong>{passed} ({pass_rate:.0%})</strong></div>
 <div class="metric"><span>Evaluation failures</span><strong>{evaluation_failures}</strong></div>
 <div class="metric"><span>Provider errors</span><strong>{provider_errors}</strong></div></section>
+<h2>Performance comparison</h2>{comparison}
 <h2>Cases</h2>{cards}<footer><h2>Reproducibility</h2><dl>{metadata_html}</dl></footer></body></html>"""
+
+
+def _comparison_table(replay: Any, cases: list[ReportCase], pass_rate: float) -> str:
+    source_models = ", ".join(sorted({case.run.model for case in cases})) or "Unavailable"
+    rows = [
+        ("Model", source_models, replay.target_model),
+        (
+            "Average latency",
+            _latency([case.run.latency_ms for case in cases], average=True),
+            _latency([case.result.latency_ms for case in cases], average=True),
+        ),
+        (
+            "Median latency",
+            _latency([case.run.latency_ms for case in cases], average=False),
+            _latency([case.result.latency_ms for case in cases], average=False),
+        ),
+        (
+            "Total input tokens",
+            _total([case.run.input_tokens for case in cases]),
+            _total([case.result.input_tokens for case in cases]),
+        ),
+        (
+            "Total output tokens",
+            _total([case.run.output_tokens for case in cases]),
+            _total([case.result.output_tokens for case in cases]),
+        ),
+        (
+            "Total provider cost",
+            _cost([case.run.cost_usd for case in cases]),
+            _cost([case.result.cost_usd for case in cases]),
+        ),
+        ("Pass rate", "Reference", f"{pass_rate:.0%}"),
+    ]
+    body = "".join(
+        f'<tr><th scope="row">{_escape(label)}</th>'
+        f"<td>{_escape(source)}</td><td>{_escape(candidate)}</td></tr>"
+        for label, source, candidate in rows
+    )
+    return (
+        '<div class="table-scroll"><table aria-label="Source and candidate performance">'
+        "<thead><tr><th>Metric</th><th>Recorded source</th><th>Candidate</th></tr></thead>"
+        f"<tbody>{body}</tbody></table></div>"
+        '<p class="subtle">Unavailable means at least one selected call did not report that '
+        "measurement. Candidate latency includes the provider call and Switchcheck overhead.</p>"
+    )
 
 
 def _case_card(case: ReportCase, number: int) -> str:
@@ -85,7 +134,7 @@ def _case_card(case: ReportCase, number: int) -> str:
     verdict_rows = (
         "".join(
             "<tr>"
-            f"<td>{_escape(str(verdict.get('checker', 'unknown')))}</td>"
+            f"<td>{_escape(_checker_label(verdict))}</td>"
             f"<td>{'Pass' if verdict.get('passed') else 'Fail'}</td>"
             f"<td>{_escape(str(verdict.get('reason', '')))}</td></tr>"
             for verdict in (result.verdict or [])
@@ -95,7 +144,7 @@ def _case_card(case: ReportCase, number: int) -> str:
     candidate = _output(result.output_text, result.output_json, result.error)
     reference = _output(case.run.output_text, case.run.output_json, case.run.error)
     return f"""<article class="case {css}"><h3>Case {number} <span class="status">{status}</span></h3>
-<p class="subtle">Run <code>{_escape(case.run.id)}</code> &middot; source <code>{_escape(case.run.model)}</code> &middot; score {_escape(str(result.score if result.score is not None else "-"))} &middot; latency {_escape(str(result.latency_ms if result.latency_ms is not None else "-"))} ms</p>
+<p class="subtle">Run <code>{_escape(case.run.id)}</code> &middot; source <code>{_escape(case.run.model)}</code> &middot; score {_escape(str(result.score if result.score is not None else "-"))} &middot; candidate latency {_escape(str(result.latency_ms if result.latency_ms is not None else "-"))} ms</p>
 <div class="outputs"><section><h4>Recorded output</h4><pre>{_escape(reference)}</pre></section><section><h4>Candidate output</h4><pre>{_escape(candidate)}</pre></section></div>
 <h4>Checks</h4><table><thead><tr><th>Checker</th><th>Result</th><th>Reason</th></tr></thead><tbody>{verdict_rows}</tbody></table></article>"""
 
@@ -106,6 +155,36 @@ def _output(text: str | None, value: Any | None, error: str | None) -> str:
     if value is not None:
         return _json(value)
     return text if text is not None else "(no output)"
+
+
+def _checker_label(verdict: dict[str, Any]) -> str:
+    checker = str(verdict.get("checker", "unknown"))
+    details = verdict.get("details")
+    if checker == "json-field" and isinstance(details, dict):
+        path = details.get("path")
+        if isinstance(path, str) and path:
+            return f"{checker}:{path}"
+    return checker
+
+
+def _latency(values: list[int | None], *, average: bool) -> str:
+    if not values or any(value is None for value in values):
+        return "Unavailable"
+    measurements = [value for value in values if value is not None]
+    result = fmean(measurements) if average else median(measurements)
+    return f"{result:,.0f} ms"
+
+
+def _total(values: list[int | None]) -> str:
+    if not values or any(value is None for value in values):
+        return "Unavailable"
+    return f"{sum(value for value in values if value is not None):,}"
+
+
+def _cost(values: list[float | None]) -> str:
+    if not values or any(value is None for value in values):
+        return "Unavailable"
+    return f"${sum(value for value in values if value is not None):,.6f}"
 
 
 def _json(value: Any) -> str:

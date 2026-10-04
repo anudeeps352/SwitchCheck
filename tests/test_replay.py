@@ -20,6 +20,14 @@ def test_replay_dry_run_does_not_create_a_session(tmp_path) -> None:
     """Dry runs select exactly the calls a live replay would select."""
     _record_run(tmp_path, "one")
     _record_run(tmp_path, "two", tag="other")
+    create_run(
+        tmp_path,
+        model="source/model",
+        messages=[{"role": "user", "content": "provider error"}],
+        params={},
+        tag="invoices",
+        error="NotFoundError: invalid model",
+    )
 
     assert replay_dry_run(tmp_path, tag="invoices") == 1
 

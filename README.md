@@ -92,6 +92,9 @@ a provider. A regular replay persists its session and every individual result,
 including provider errors. Cost estimates are currently unavailable until local
 pricing data is added.
 
+Recorded source calls that ended in provider errors are kept in run history for
+diagnosis but excluded from replay selection.
+
 Add repeatable deterministic checks to decide whether each output is acceptable:
 
 ```powershell
@@ -113,8 +116,10 @@ switchcheck report --replay REPLAY_ID
 
 The default destination is `.switchcheck/reports/REPLAY_ID.html`; pass
 `--output path/to/report.html` to choose another location. The report includes
-failure-first output comparisons, checker reasons, aggregate metrics, and the
-replay configuration. It contains recorded outputs, so handle it as sensitive.
+failure-first output comparisons, field-specific checker reasons,
+source-versus-candidate latency and token totals, provider-reported cost, and
+the replay configuration. It contains recorded outputs, so handle it as
+sensitive.
 
 ## Repository layout
 
