@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "switchcheck"
 version = "0.1.0a0"
-description = "Replay real LLM traffic to evaluate safe model and prompt changes."
+description = "Evaluate model and prompt changes on supported tasks with predefined expectations."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { file = "LICENSE" }

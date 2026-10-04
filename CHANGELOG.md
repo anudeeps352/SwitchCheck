@@ -7,6 +7,22 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## Unreleased
 
+### Changed
+
+- Added the planned assisted dataset-building lifecycle: automated sampling,
+  redaction/deduplication, authoritative enrichment, LLM drafts, provenance,
+  review routing, approval policies, immutable versions, and refresh.
+- Defined the ten supported evaluation task types, explicit evaluator mapping,
+  calibrated-judge boundary, four final case states, and unsupported use cases.
+- Dataset imports now require `task_type` and reject declared evaluator/task
+  combinations outside the product contract.
+- Added versioned case contracts with task-specific evidence validation,
+  structured criteria, reference/context persistence, safe legacy migration,
+  and a provider-free `dataset check` command.
+- Added typed exact, field, schema, numeric, pattern, tool-call, required-facts,
+  and classification-metrics evaluators plus `PASS`, `FAIL`, `REVIEW`, and
+  `ERROR` verdict composition.
+
 ### Added
 
 - SQLite database initialization, schema versioning, and migration safeguards.
