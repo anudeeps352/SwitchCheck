@@ -1,227 +1,142 @@
 # Switchcheck development plan
 
-## Goal and definition of done for v0.1
+## Objective
 
-Ship an installable Python package that lets a developer record a small set of
-non-streaming LLM calls, replay them on a different model, check the results,
-and open an HTML report. The workflow must run locally with a fake provider in
-CI and with a real provider in the example.
+Deliver a trustworthy evaluation workflow for the ten task types in the
+[supported evaluation scope](docs/supported-evaluation-scope.md). The roadmap is
+contract-first: each milestone expands implementation inside that boundary. A
+new task type requires its own expected evidence, evaluator mapping, tests, and
+documentation before it can be advertised.
 
-v0.1 is done when the following works from a clean environment:
+## Current state
 
-```text
-install package → init → record sample calls → replay with fake/real model
-→ evaluate deterministic checks → generate report
-```
+The foundation can record and replay non-streaming calls, run several legacy
+deterministic checks, persist results, produce static reports, and import labeled
+JSONL datasets. Dataset imports now require a supported `task_type` and reject
+declared task/evaluator combinations outside the allow-list. Versioned cases now
+store structured criteria, reference/context evidence, and presence information;
+task-specific eligibility can be checked without a provider call.
 
-## Delivery stages
+The product cannot yet run imported datasets end to end. Criteria judging,
+calibration, four-state experiment results, and the full task-specific metric
+set are planned—not shipped.
 
-| Stage | Outcome | Exit criteria |
+## Delivery roadmap
+
+| Milestone | Outcome | Exit criteria |
 |---|---|---|
-| 0. Foundations | Repository can be installed, checked, and tested. | `pyproject.toml`, `src/` layout, CLI shell, test tooling, formatting/linting and CI are green. |
-| 1. Recording | Real calls become durable runs. | `init`, SQLite migrations, client wrapper, token/latency/error capture, and `runs` listing are tested. |
-| 2. Replay | Recorded inputs can be run against a candidate model. | Selection, dry-run cost estimate, bounded concurrency, retry policy, partial-result persistence, and fake-provider tests work. |
-| 3. Evaluation | A replay answers whether outputs remain acceptable. | Exact, contains, regex, JSON Schema checks; structured verdicts; errors count as failures. |
-| 4. Reporting | Results are understandable without a server. | Self-contained HTML report with aggregate metrics, regressions, output comparison, and reproducibility footer. |
-| 5. Release readiness | Others can install and trust v0.1. | Example app, documentation, security/privacy notes, package build, smoke test, changelog, and tagged release. |
+| v0.1 foundation | Preserve the local record/replay/check/report workflow. | Offline tests, schema migrations, privacy guidance, package build, and example flow pass. |
+| v0.2 contracts and deterministic evaluation | Run labeled classification, extraction, structured transformation, tool selection, and decision datasets. | Eligibility gate and evidence validation work; evaluator registry rejects invalid combinations; deterministic evaluator families run; every case is `PASS`, `FAIL`, or `ERROR`; task-specific metrics and reproducible reports are available. |
+| v0.3 facts and four-state results | Add factual QA and deterministic fact checks, plus human review routing. | Required/prohibited facts are versioned; `REVIEW` is persisted and never counted as pass; all aggregates retain errors; metadata-grouped analysis works. |
+| v0.4 calibrated criteria judge | Add support response, summarization, RAG answer, and rubric free text. | Concrete criteria/context validation works; judge inputs are blinded; output schema is enforced; configurations are versioned; human calibration reports agreement and disagreements; uncalibrated judges are visibly marked. |
+| v0.5 review workflow | Make uncertain and failed cases efficient to inspect and label. | A local or web workflow supports filtering all four states, per-criterion evidence, human verdicts, and calibration-set curation without changing the scope contract. |
+| Later: agent evaluation | Introduce a separate multi-step contract. | Work begins only after trajectory semantics, expected tool/task outcomes, and dedicated evaluators are designed; it is not an extension of the generic criteria judge. |
 
-Work stages in order. Do not start an LLM judge, agent traces, web UI, or
-additional language SDKs until Stage 5 is accepted.
+## Immediate implementation sequence
 
-## Initial work breakdown
+### 1. Complete the case contract (implemented)
 
-### Stage 0 — Foundations
+- Versioned `reference`, `context`, and structured `criteria` fields are stored.
+- Task-specific requirements are validated before persistence: expected labels for
+  discrete tasks, expected fields for structured tasks, policy/source/retrieved
+  context where required, and observable rubric criteria for judge tasks.
+- A dataset contract version and migration path preserve existing local
+  cases whose `task_type` is null; require explicit relabeling rather than
+  guessing their type.
+- `switchcheck dataset check` performs eligibility checks without provider calls.
 
-- Create package skeleton and `pyproject.toml` for Python 3.10+.
-- Choose and configure: `pytest`, Ruff (lint + format), MyPy or Pyright, and
-  pre-commit hooks.
-- Add an MIT license, contribution guide, supported-Python policy, and a minimal
-  README with development setup.
-- Create GitHub Actions CI before feature work.
+### 2. Build the deterministic evaluator registry (core implemented)
 
-### Stage 1 — Recording
+- `ExactEvaluator`, `FieldEvaluator`, `SchemaEvaluator`,
+  `NumericEvaluator`, `ClassificationMetricsEvaluator`, and
+  `ToolCallEvaluator` now have typed, tested implementations.
+- `PatternEvaluator` is implemented as a constraint primitive and
+  `RequiredFactsEvaluator` checks only explicitly supplied facts.
+- Validate configurations at import and again at experiment start.
+- Remove reliance on an incumbent output as expected truth in dataset
+  experiments; keep recorded replay as a separate comparison workflow.
 
-- Implement migrations and repository-owned SQLite access.
-- Implement `switchcheck init` and clear project-location discovery.
-- Add `client.chat()` over LiteLLM with safe request normalization.
-- Persist successful responses and provider errors consistently.
-- Add unit tests for migrations, serialization, and `runs` filtering.
+### 3. Run dataset experiments
 
-### Stage 2 — Replay
+- Select a named immutable dataset version and candidate configuration.
+- Persist the experiment and pending case attempts before provider execution.
+- Use bounded concurrency and retry only transient provider failures.
+- Parse candidate text, structured output, or a single proposed tool call based
+  on the declared task contract.
+- Store evaluator versions, evidence, latency, usage, and normalized request.
 
-- Build a provider interface that tests can replace with a deterministic fake.
-- Implement selecting runs by tag, IDs, and sample size.
-- Implement replay session/result persistence before model execution.
-- Add concurrency control, retry classification, cancellation/interruption
-  behavior, and a dry-run estimate.
-- Test timeouts, invalid parameters, partial failures, and resume behavior.
+### 4. Introduce four-state outcomes and metrics
 
-### Stage 3 — Evaluation
+- Replace boolean-only experiment outcomes with `PASS | FAIL | REVIEW | ERROR`.
+- Define aggregation denominators explicitly; never drop review/error cases.
+- Add accuracy, per-label precision/recall/F1, confusion matrices, field/case
+  accuracy, tool/argument accuracy, and metadata-grouped failure rates.
+- Keep legacy replay reports honest about their boolean checker semantics until
+  they migrate to the experiment result model.
 
-- Define checker protocol and verdict schema.
-- Add exact, contains, regex, JSON Schema, and JSON field checks.
-- Validate checker configuration at command start.
-- Calculate aggregate pass rate without hiding errors.
+### 5. Add factual QA before judging prose
 
-### Stage 4 — Reporting
+- Represent required facts, prohibited facts, numeric values, and structured
+  assertions explicitly.
+- Evaluate them deterministically and expose failures at fact level.
+- Permit a criteria judge only as an optional second layer; it cannot override a
+  deterministic fact failure.
 
-- Create a static Jinja2 report template with inline assets.
-- Include summary metrics, regression-first case list, detailed checker reasons,
-  and reproducibility configuration.
-- Add golden-file and accessibility-oriented HTML checks.
+### 6. Add and calibrate the criteria judge
 
-### Stage 5 — Release readiness
+- Validate criteria as concrete observable requirements.
+- Build task-specific prompt templates that always include supplied source,
+  policy, or retrieved context when the task requires it.
+- Blind the judge to model/provider names, cost, latency, and candidate status.
+- Enforce the `pass | fail | review` per-criterion output schema.
+- Persist the complete judge configuration with every result.
+- Compare against human labels and report overall agreement, case count,
+  disagreements, and criterion agreement before calling a judge trusted.
 
-- Build a synthetic invoice-extractor example with no sensitive data.
-- Add an end-to-end smoke test using the fake provider.
-- Document quickstart, price-data limits, privacy/redaction, provider limits,
-  and troubleshooting.
-- Publish release notes, tag the version, build artifacts, then publish to PyPI.
+### 7. Reporting and user experience
 
-## Versioning and release policy
+- Lead every report with task type, dataset/version, evaluator configuration,
+  calibration status, and counts for all four states.
+- Show task-specific metrics only where meaningful.
+- Make unsupported-task errors actionable and link to the scope document.
+- Use product copy consistently: “preserves expected behavior for supported
+  tasks,” never “determines whether any LLM output is good.”
 
-Use Semantic Versioning from the first public package release.
+## Required acceptance datasets
 
-| Version range | Meaning | Examples |
-|---|---|---|
-| `0.y.z` | Pre-1.0: minor versions may introduce planned breaking changes; patches are backward-compatible fixes. | `0.1.0` MVP; `0.2.0` agent traces. |
-| `1.y.z` | Stable public API: breaking public changes require a major version. | Future stability milestone. |
-| prerelease | Explicitly unstable release candidate. | `0.1.0rc1`. |
+Maintain small offline fixtures for all ten task types. Each fixture includes
+passing, failing, malformed/error, and boundary cases. Judge-task fixtures also
+include `REVIEW`, unsupported-claim examples, and human verdicts for calibration.
 
-Version source of truth: one value in `pyproject.toml`; package metadata, CLI
-`--version`, report footer, and release artifacts derive from it. Use annotated
-Git tags named `vX.Y.Z`. Keep a human-readable `CHANGELOG.md` under the Keep a
-Changelog structure, with an `Unreleased` section.
+At least these cross-cutting tests are required:
 
-Release rules:
-
-- `main` is always releasable and should be protected by required CI checks.
-- Feature work lands through focused pull requests.
-- A release PR updates the version and changelog, then produces an `rc` when
-  external testing is useful.
-- A tag on the approved release commit builds immutable distributions and
-  publishes them. Never rebuild or overwrite an existing version.
-- Patch releases require a regression test for the fixed behavior.
-
-## Branching and rollout strategy
-
-Use trunk-based development while the project is small. `main` is the single
-integration branch and must remain installable and releasable. Do not create a
-long-lived `develop` branch or environment branches.
-
-| Branch | Purpose | Lifetime |
-|---|---|---|
-| `main` | Reviewed, working integration branch. | Permanent; protect it once CI is established. |
-| `feat/<topic>` | One focused capability, such as `feat/stage1-store`. | Create from `main`; delete after merge. |
-| `fix/<topic>` | A focused bug fix, with a regression test. | Create from `main`; delete after merge. |
-| `docs/<topic>` | Documentation-only work. | Create from `main`; delete after merge. |
-| `chore/<topic>` | Tooling, dependency, or repository maintenance. | Create from `main`; delete after merge. |
-| `release/<version>` | Optional coordinated release preparation. | Short-lived; merge or tag, then delete. |
-
-### Feature workflow
-
-```text
-main ? create focused branch ? commit small, tested changes ? push ? pull request
-? required CI passes ? review ? squash merge to main ? delete feature branch
-```
-
-Start new work from an up-to-date `main`:
-
-```powershell
-git switch main
-git pull origin main
-git switch -c feat/<topic>
-git push -u origin feat/<topic>
-```
-
-Use conventional-style commit subjects (`feat:`, `fix:`, `docs:`, `chore:`) so
-the history and future release notes stay readable. Keep a pull request limited
-to one outcome; if a change needs unrelated work, split it into separate
-branches and PRs.
-
-### Main-branch protection
-
-Configure GitHub branch protection for `main` when the repository is ready:
-
-- Require pull requests before merging.
-- Require the Python 3.10, 3.11, 3.12, and package-build CI checks to pass.
-- Block force pushes and branch deletion.
-- Require at least one approval when collaborators join; until then, use a
-  deliberate self-review before merging.
-
-### Release rollout
-
-```text
-merged PRs on main
-  ? optional release-candidate tag (v0.1.0rc1)
-  ? TestPyPI validation and manual live-provider smoke test
-  ? final version/tag (v0.1.0)
-  ? immutable GitHub release and PyPI publication
-```
-
-Until the first package release, deploying means merging a CI-green pull request
-to `main`; no production service is being deployed. Roll back a merged change
-with a new `fix/` branch and a reverting commit, rather than force-pushing
-`main`.
-## CI/CD pipeline
-
-### Pull-request CI (required)
-
-Run on supported Python versions (initially 3.10, 3.11, and 3.12):
-
-1. Install locked development dependencies.
-2. Run Ruff format check and lint.
-3. Run static type checking.
-4. Run unit and integration tests with no provider credentials and no network.
-5. Run coverage and enforce a gradually raised threshold (start at 75%; target
-   85% for core modules).
-6. Build source distribution and wheel; verify package metadata and install the
-   wheel in a fresh virtual environment.
-7. Run the example's fake-provider smoke flow and verify report output.
-
-### Main-branch CI (required)
-
-Run the same checks plus dependency/security auditing. Upload test results and
-coverage as build artifacts; do not publish packages from ordinary `main`
-builds.
-
-### Release CD (tag/manual approval)
-
-1. Verify the tag matches the package version and changelog.
-2. Re-run the complete quality gate from a clean runner.
-3. Build once and attach the wheel and sdist to the GitHub release.
-4. Publish first to TestPyPI for release-candidate validation if needed, then
-   publish the exact built artifacts to PyPI through trusted publishing.
-5. Create the GitHub release from the matching changelog section.
-
-Use least-privilege GitHub Actions permissions, dependency pinning, and PyPI
-trusted publishing (OIDC) instead of long-lived upload tokens. Provider API keys
-must never be needed in ordinary CI. Any optional live-provider smoke test is a
-manually approved workflow using repository secrets and a strict spend cap.
+- every unsupported task type is rejected before provider execution;
+- every disallowed task/evaluator pair is rejected;
+- deterministic tasks run without an LLM judge;
+- judge requests contain required context and exclude blinded metadata;
+- `REVIEW` is not counted as pass;
+- `ERROR` remains in the denominator and report;
+- a source model response is never silently treated as ground truth; and
+- one-tool-call evaluation never executes or continues the tool trajectory.
 
 ## Quality gates
 
-| Gate | Applies to | Requirement |
-|---|---|---|
-| Functional | Every PR | Tests pass without network access. |
-| Compatibility | Every PR | Supported Python matrix is green. |
-| Packaging | Every PR and release | Wheel installs and CLI starts in a clean environment. |
-| Security | `main` and releases | Dependency audit clean or explicitly documented exception. |
-| Documentation | Feature/release PRs | User-facing CLI/API changes update README and changelog. |
-| Release | Tags | Version, tag, report footer, and changelog agree. |
+Every change must pass Ruff formatting/linting, Pyright, offline pytest, package
+build, schema migration tests, and the synthetic smoke flow. User-facing changes
+must update README, the scope document when the contract changes, architecture,
+roadmap, examples, and changelog as applicable.
 
-## First implementation sequence
+Normal CI must not require provider credentials or network access. Live-provider
+tests are manual, spend-capped, and excluded from correctness gates.
 
-1. Create the Python project skeleton and GitHub Actions CI.
-2. Add the SQLite store plus `init` and `runs` commands.
-3. Add a fake LLM adapter and tests before connecting the real LiteLLM adapter.
-4. Implement recording, then replay, then deterministic checks, then the report.
-5. Use the invoice example as the end-to-end acceptance test throughout.
+## Explicit non-goals
 
-## Deferred backlog
+Do not schedule a universal evaluator, arbitrary “answer quality” score,
+creative preference grader, end-to-end retrieval grader, autonomous coding-agent
+grader, or safety certification feature. Do not use embeddings, clustering, or
+learned evaluators as correctness verdicts unless a future scoped milestone
+defines their task contract and validates them against labeled data.
 
-- LLM-as-a-judge and human review workflow.
-- Redaction presets and encrypted-at-rest options.
-- GitHub Action that comments on prompt-related pull requests.
-- Streaming, tool calls, multi-turn traces, and agent replay.
-- TypeScript SDK and framework-specific adapters.
+Agent traces remain later work. Packaging, provider breadth, hosted accounts,
+TypeScript support, price catalogs, and release automation are secondary to a
+valid, reproducible evaluation core.

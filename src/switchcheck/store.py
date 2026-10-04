@@ -11,10 +11,12 @@ from typing import Any
 from uuid import uuid4
 
 from switchcheck import __version__
+from switchcheck.contracts import CASE_CONTRACT_VERSION, Criterion, validate_case_contract
+from switchcheck.task_types import EvaluatorType, TaskType, parse_evaluators
 
 DATABASE_DIRECTORY = ".switchcheck"
 DATABASE_FILENAME = "switchcheck.sqlite3"
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 4
 
 _SCHEMA_V1 = """
 CREATE TABLE IF NOT EXISTS runs (
@@ -68,6 +70,45 @@ CREATE INDEX IF NOT EXISTS idx_runs_created_at ON runs(created_at);
 CREATE INDEX IF NOT EXISTS idx_replay_results_replay_id ON replay_results(replay_id);
 """
 
+_SCHEMA_V2 = """
+CREATE TABLE IF NOT EXISTS datasets (
+    id TEXT PRIMARY KEY,
+    created_at TEXT NOT NULL,
+    name TEXT NOT NULL UNIQUE,
+    description TEXT
+);
+
+CREATE TABLE IF NOT EXISTS evaluation_cases (
+    id TEXT PRIMARY KEY,
+    created_at TEXT NOT NULL,
+    dataset_id TEXT NOT NULL REFERENCES datasets(id) ON DELETE CASCADE,
+    messages_json TEXT NOT NULL,
+    expected_json TEXT NOT NULL,
+    criteria TEXT,
+    metadata_json TEXT NOT NULL,
+    source_run_id TEXT REFERENCES runs(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_evaluation_cases_dataset_id
+ON evaluation_cases(dataset_id);
+"""
+
+_SCHEMA_V3 = """
+ALTER TABLE evaluation_cases ADD COLUMN task_type TEXT;
+ALTER TABLE evaluation_cases ADD COLUMN evaluator_json TEXT NOT NULL DEFAULT '[]';
+"""
+
+_SCHEMA_V4 = """
+ALTER TABLE datasets ADD COLUMN contract_version INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE evaluation_cases ADD COLUMN contract_version INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE evaluation_cases ADD COLUMN has_expected INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE evaluation_cases ADD COLUMN reference_json TEXT;
+ALTER TABLE evaluation_cases ADD COLUMN has_reference INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE evaluation_cases ADD COLUMN context_json TEXT;
+ALTER TABLE evaluation_cases ADD COLUMN has_context INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE evaluation_cases ADD COLUMN criteria_json TEXT NOT NULL DEFAULT '[]';
+"""
+
 
 @dataclass(frozen=True)
 class Run:
@@ -87,6 +128,39 @@ class Run:
     cost_usd: float | None
     latency_ms: int | None
     error: str | None
+
+
+@dataclass(frozen=True)
+class Dataset:
+    """A named collection of human-reviewed evaluation cases."""
+
+    id: str
+    created_at: str
+    name: str
+    description: str | None
+    contract_version: int
+
+
+@dataclass(frozen=True)
+class EvaluationCase:
+    """One labeled input and its expected outcome."""
+
+    id: str
+    created_at: str
+    dataset_id: str
+    contract_version: int
+    task_type: TaskType | None
+    messages: list[dict[str, Any]]
+    has_expected: bool
+    expected: Any
+    has_reference: bool
+    reference: Any
+    has_context: bool
+    context: Any
+    criteria: tuple[Criterion, ...]
+    metadata: dict[str, Any]
+    source_run_id: str | None
+    evaluators: tuple[EvaluatorType, ...]
 
 
 @dataclass(frozen=True)
@@ -165,7 +239,17 @@ def initialize_database(project_directory: Path) -> Path:
 
             if current_version < 1:
                 connection.executescript(_SCHEMA_V1)
-                connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+                current_version = 1
+            if current_version < 2:
+                connection.executescript(_SCHEMA_V2)
+                current_version = 2
+            if current_version < 3:
+                connection.executescript(_SCHEMA_V3)
+                current_version = 3
+            if current_version < 4:
+                connection.executescript(_SCHEMA_V4)
+                current_version = 4
+            connection.execute(f"PRAGMA user_version = {current_version}")
     finally:
         connection.close()
     return path
@@ -232,6 +316,162 @@ def create_run(
             ),
         )
     return run
+
+
+def create_dataset(
+    project_directory: Path, *, name: str, description: str | None = None
+) -> Dataset:
+    """Create and return a named evaluation dataset."""
+    normalized_name = name.strip()
+    if not normalized_name:
+        raise ValueError("dataset name must not be empty")
+    path = initialize_database(project_directory)
+    dataset = Dataset(
+        id=str(uuid4()),
+        created_at=datetime.now(timezone.utc).isoformat(),
+        name=normalized_name,
+        description=description,
+        contract_version=CASE_CONTRACT_VERSION,
+    )
+    try:
+        with connect(path) as connection:
+            connection.execute(
+                """
+                INSERT INTO datasets (id, created_at, name, description, contract_version)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    dataset.id,
+                    dataset.created_at,
+                    dataset.name,
+                    dataset.description,
+                    dataset.contract_version,
+                ),
+            )
+    except sqlite3.IntegrityError as error:
+        raise ValueError(f"Dataset {normalized_name!r} already exists.") from error
+    return dataset
+
+
+def create_evaluation_case(
+    project_directory: Path,
+    *,
+    dataset_id: str,
+    task_type: TaskType,
+    messages: list[dict[str, Any]],
+    expected: Any,
+    contract_version: int = CASE_CONTRACT_VERSION,
+    has_expected: bool = True,
+    reference: Any = None,
+    has_reference: bool = False,
+    context: Any = None,
+    has_context: bool = False,
+    criteria: tuple[Criterion, ...] = (),
+    metadata: dict[str, Any] | None = None,
+    source_run_id: str | None = None,
+    evaluators: tuple[EvaluatorType, ...] = (),
+) -> EvaluationCase:
+    """Create and return one labeled case in a dataset."""
+    validated_evaluators = parse_evaluators(
+        task_type,
+        [evaluator.value for evaluator in evaluators] if evaluators else None,
+    )
+    if contract_version != CASE_CONTRACT_VERSION:
+        raise ValueError(
+            f"unsupported contract_version {contract_version!r}; expected {CASE_CONTRACT_VERSION}"
+        )
+    validate_case_contract(
+        task_type=task_type,
+        messages=messages,
+        has_expected=has_expected,
+        expected=expected,
+        has_reference=has_reference,
+        reference=reference,
+        has_context=has_context,
+        context=context,
+        criteria=criteria,
+        evaluators=validated_evaluators,
+    )
+    path = initialize_database(project_directory)
+    case = EvaluationCase(
+        id=str(uuid4()),
+        created_at=datetime.now(timezone.utc).isoformat(),
+        dataset_id=dataset_id,
+        contract_version=contract_version,
+        task_type=task_type,
+        messages=messages,
+        has_expected=has_expected,
+        expected=expected,
+        has_reference=has_reference,
+        reference=reference,
+        has_context=has_context,
+        context=context,
+        criteria=criteria,
+        metadata=metadata or {},
+        source_run_id=source_run_id,
+        evaluators=validated_evaluators,
+    )
+    try:
+        with connect(path) as connection:
+            connection.execute(
+                """
+                INSERT INTO evaluation_cases (
+                    id, created_at, dataset_id, messages_json, expected_json,
+                    criteria, metadata_json, source_run_id, task_type, evaluator_json,
+                    contract_version, has_expected, reference_json, has_reference,
+                    context_json, has_context, criteria_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    case.id,
+                    case.created_at,
+                    case.dataset_id,
+                    _dump_json(case.messages),
+                    _dump_json(case.expected),
+                    None,
+                    _dump_json(case.metadata),
+                    case.source_run_id,
+                    task_type.value,
+                    _dump_json([evaluator.value for evaluator in case.evaluators]),
+                    case.contract_version,
+                    int(case.has_expected),
+                    _dump_json(case.reference) if case.has_reference else None,
+                    int(case.has_reference),
+                    _dump_json(case.context) if case.has_context else None,
+                    int(case.has_context),
+                    _dump_json([criterion.as_dict() for criterion in case.criteria]),
+                ),
+            )
+    except sqlite3.IntegrityError as error:
+        raise ValueError("Dataset or source run does not exist.") from error
+    return case
+
+
+def get_dataset(project_directory: Path, *, identifier: str) -> Dataset | None:
+    """Return a dataset by ID or exact name."""
+    path = database_path(project_directory)
+    if not path.is_file():
+        return None
+    initialize_database(project_directory)
+    with connect(path) as connection:
+        row = connection.execute(
+            "SELECT * FROM datasets WHERE id = ? OR name = ? LIMIT 1",
+            (identifier, identifier),
+        ).fetchone()
+    return _dataset_from_row(row) if row is not None else None
+
+
+def list_evaluation_cases(project_directory: Path, *, dataset_id: str) -> list[EvaluationCase]:
+    """Return every labeled case in stable creation order."""
+    path = database_path(project_directory)
+    if not path.is_file():
+        return []
+    with connect(path) as connection:
+        rows = connection.execute(
+            "SELECT * FROM evaluation_cases WHERE dataset_id = ? ORDER BY created_at, id",
+            (dataset_id,),
+        ).fetchall()
+    return [_evaluation_case_from_row(row) for row in rows]
 
 
 def list_runs(
@@ -443,6 +683,44 @@ def _run_from_row(row: sqlite3.Row) -> Run:
         cost_usd=row["cost_usd"],
         latency_ms=row["latency_ms"],
         error=row["error"],
+    )
+
+
+def _evaluation_case_from_row(row: sqlite3.Row) -> EvaluationCase:
+    raw_task_type = row["task_type"]
+    criteria = tuple(
+        Criterion(id=item["id"], requirement=item["requirement"])
+        for item in json.loads(row["criteria_json"])
+    )
+    if not criteria and row["criteria"]:
+        criteria = (Criterion(id="legacy", requirement=row["criteria"]),)
+    return EvaluationCase(
+        id=row["id"],
+        created_at=row["created_at"],
+        dataset_id=row["dataset_id"],
+        contract_version=row["contract_version"],
+        task_type=TaskType(raw_task_type) if raw_task_type is not None else None,
+        messages=json.loads(row["messages_json"]),
+        has_expected=bool(row["has_expected"]),
+        expected=json.loads(row["expected_json"]),
+        has_reference=bool(row["has_reference"]),
+        reference=json.loads(row["reference_json"]) if row["reference_json"] is not None else None,
+        has_context=bool(row["has_context"]),
+        context=json.loads(row["context_json"]) if row["context_json"] is not None else None,
+        criteria=criteria,
+        metadata=json.loads(row["metadata_json"]),
+        source_run_id=row["source_run_id"],
+        evaluators=tuple(EvaluatorType(value) for value in json.loads(row["evaluator_json"])),
+    )
+
+
+def _dataset_from_row(row: sqlite3.Row) -> Dataset:
+    return Dataset(
+        id=row["id"],
+        created_at=row["created_at"],
+        name=row["name"],
+        description=row["description"],
+        contract_version=row["contract_version"],
     )
 
 

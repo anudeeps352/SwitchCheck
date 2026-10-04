@@ -1,5 +1,6 @@
 """Smoke tests for the public command-line entry point."""
 
+import json
 from pathlib import Path
 
 import pytest
@@ -81,6 +82,45 @@ def test_replay_dry_run_reports_selection(tmp_path: Path) -> None:
 
     assert result.exit_code == 0
     assert "Selected 1 runs" in result.stdout
+
+
+def test_dataset_import_command_creates_labeled_cases(tmp_path: Path) -> None:
+    """The CLI imports a human-reviewed JSONL dataset without a model call."""
+    source = tmp_path / "cases.jsonl"
+    source.write_text(
+        json.dumps(
+            {
+                "task_type": "extraction",
+                "messages": [{"role": "user", "content": "Invoice 1"}],
+                "expected": {"invoice_id": "1"},
+                "metadata": {"category": "invoice"},
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "dataset",
+            "import",
+            "invoice-v1",
+            str(source),
+            "--path",
+            str(tmp_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "Imported 1 case into dataset invoice-v1" in result.stdout
+
+    check = runner.invoke(
+        app,
+        ["dataset", "check", "invoice-v1", "--path", str(tmp_path)],
+    )
+    assert check.exit_code == 0
+    assert "1/1 cases eligible" in check.stdout
 
 
 def test_report_writes_html(tmp_path: Path) -> None:

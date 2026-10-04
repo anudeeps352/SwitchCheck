@@ -1,14 +1,62 @@
 # Switchcheck
 
-Switchcheck helps developers decide whether changing an LLM model, prompt, or
-parameters will break their application. It records real calls, replays them
-against a candidate configuration, evaluates the outputs, and creates a local
-report.
+Switchcheck determines whether changing an LLM model, prompt, or parameters
+preserves expected behavior for a fixed set of repeatable, single-interaction
+task types. Every evaluated case needs a predefined expected value,
+deterministic constraint, supplied reference/context, or explicit observable
+rubric.
 
-The core workflow through Stage 4 (reporting) is complete, and Stage 5 adds
-the release-readiness example, smoke test, and operational guidance. The
-product scope and delivery plan are in [architecture.md](architecture.md) and
-[development-plan.md](development-plan.md).
+Switchcheck is not a universal LLM grader. It does not claim that one model can
+replace another for arbitrary applications, and it never silently falls back to
+asking a judge model whether an answer is “good.” See the authoritative
+[supported evaluation scope](docs/supported-evaluation-scope.md).
+
+The core workflow through Stage 4 (reporting) and the Stage 5 release-readiness
+example, smoke test, and operational guidance are complete. Active development
+is the labeled-evaluation core: models are measured against explicit expected
+outcomes rather than treating the original model response as ground truth. The
+technical boundaries are in [architecture.md](architecture.md), and the roadmap
+is in [development-plan.md](development-plan.md).
+
+## Next milestone: labeled evaluations
+
+The next vertical slice will import a named JSONL dataset, run its cases against
+a candidate model, compare the responses with expected values, calculate useful
+metrics, and include those results in a reproducible report. This dataset layer
+will then support the explicitly permitted evaluator families, including
+calibrated criteria judging only for eligible free-text task types.
+
+LLM judging intentionally follows labeled datasets. Without human-reviewed
+examples, there is no reliable way to measure whether an automated judge is
+making good decisions.
+
+The first part of this milestone is available now. Create a UTF-8 JSONL file
+with one labeled case per line:
+
+```json
+{"contract_version":1,"task_type":"extraction","messages":[{"role":"user","content":"Invoice INV-1001 totals USD 42.50."}],"expected":{"invoice_id":"INV-1001","total_usd":42.5},"evaluators":["schema","fields","numeric"],"metadata":{"difficulty":"easy"}}
+```
+
+Import it into the project-local database:
+
+```powershell
+switchcheck dataset import invoice-v1 cases.jsonl --description "Reviewed invoices"
+```
+
+The importer validates the complete file, including task types and declared
+task/evaluator combinations, before writing any cases. Running an
+imported dataset against a candidate model and reporting ground-truth metrics is
+the next implementation step.
+
+Check an imported dataset's eligibility without making provider calls:
+
+```powershell
+switchcheck dataset check invoice-v1
+```
+
+Free-text task types additionally use structured `criteria` records and, where
+required, `context` or `reference`. See the
+[case contract](architecture.md#dataset-case-contract).
 
 ## Try the complete workflow offline
 

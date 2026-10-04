@@ -1,184 +1,218 @@
 # Switchcheck architecture
 
-## Purpose
+## Purpose and boundary
 
-Switchcheck is a local-first Python tool for answering one question with real
-application traffic: **can we change an LLM model, prompt, or parameters without
-breaking the feature?**
+Switchcheck is a local-first evaluation system for deciding whether a model,
+prompt, or parameter change preserves acceptable behavior on supported,
+repeatable LLM tasks. Acceptability must be defined before the candidate output
+is seen.
 
-It records calls made by an application, replays selected calls against a
-candidate configuration, evaluates the outputs, and produces a portable HTML
-report. It does not require a hosted service or a Switchcheck account.
-
-## Build decision: v0.1
-
-Build the smallest end-to-end vertical slice first:
-
-1. Record non-streaming chat-completion calls through a Python wrapper.
-2. Store those calls in a project-local SQLite database.
-3. Replay calls against a chosen LiteLLM model.
-4. Run deterministic checks (`exact`, `contains`, `regex`, and JSON Schema).
-5. Generate a single static HTML report.
-
-The first supported use case is structured extraction or classification, where
-deterministic checks make a migration decision credible. LLM-as-a-judge,
-streaming, multi-turn agents, hosted UI, and TypeScript support are deliberately
-outside v0.1.
+The authoritative product contract is
+[docs/supported-evaluation-scope.md](docs/supported-evaluation-scope.md). The
+architecture must reject unsupported tasks and evaluator combinations; it must
+never compensate for missing ground truth by invoking a generic judge.
 
 ## System context
 
 ```text
-Application
-    │ calls a thin Switchcheck client
-    ▼
-Client wrapper ── calls ──> LiteLLM ──> provider/model
-    │                              │
-    │ records input, response, usage, latency and error
-    ▼                              ▼
-SQLite store <── replay engine ── candidate provider/model
-    │                 │
-    │                 ▼
-    │             checkers
-    ▼                 │
-CLI ───────────────> static HTML report
+application traffic --> recorder --> local run store
+                                      |
+labeled dataset --> eligibility --> experiment runner --> candidate model
+                     gate             |                    |
+                     |                +-- candidate output-+
+                     v
+               evaluator registry --> case state + evidence --> report/review
 ```
 
-The CLI is the composition layer; application code only depends on the client
-wrapper. Provider-specific behavior remains behind LiteLLM.
+The CLI is the composition layer. LiteLLM isolates provider-specific calls.
+SQLite owns local experiment state. Reports are self-contained artifacts and
+may contain sensitive application data.
 
-## Components
+## Eligibility and task model
 
-| Component | Responsibility | v0.1 boundary |
-|---|---|---|
-| `client` | Call LiteLLM, measure the call, and persist a run. | Non-streaming chat completions only. |
-| `store` | Own schema migrations and all SQLite queries. | A `.switchcheck/switchcheck.sqlite3` file; no network service. |
-| `replay` | Load eligible runs, apply an override, invoke target model with bounded concurrency, and persist results. | One turn per recorded call. |
-| `checkers` | Compare original and candidate outputs and return structured verdicts. | Deterministic checks first. |
-| `pricing` | Estimate and calculate token cost using versioned local price data. | Unknown prices are displayed as unavailable, never invented. |
-| `report` | Render replay results into a self-contained HTML file. | Summary, regressions, case detail, reproducibility metadata. |
-| `cli` | Expose user workflows and validate input. | `init`, `runs`, `replay`, `report`; `export` is later. |
-
-## Public interfaces
-
-### Python API
-
-Keep the first API intentionally small and stable:
+Every dataset case declares one `TaskType`:
 
 ```python
-from switchcheck import client
-
-response = client.chat(
-    model="provider/model",
-    messages=[{"role": "user", "content": "Extract invoice fields..."}],
-    tag="invoice-extractor",
-    temperature=0,
-)
+class TaskType(str, Enum):
+    CLASSIFICATION = "classification"
+    EXTRACTION = "extraction"
+    STRUCTURED_TRANSFORMATION = "structured_transformation"
+    TOOL_SELECTION = "tool_selection"
+    DECISION = "decision"
+    FACTUAL_QA = "factual_qa"
+    SUPPORT_RESPONSE = "support_response"
+    SUMMARIZATION = "summarization"
+    RAG_ANSWER = "rag_answer"
+    RUBRIC_FREE_TEXT = "rubric_free_text"
 ```
 
-`tag` groups calls into a feature-level evaluation set. The wrapper returns the
-underlying provider response (or a documented compatible response object) so
-adding Switchcheck does not force an application rewrite.
+Before making provider calls, the eligibility gate verifies that the case is a
+single independently evaluable interaction, expected behavior was specified in
+advance, the evidence is representable, and the task type is supported. It then
+validates every configured evaluator against the task/evaluator allow-list.
 
-### CLI
+Cases outside this contract receive `Unsupported evaluation task`; they do not
+enter experiment aggregates.
 
-```text
-switchcheck init
-switchcheck runs --tag invoice-extractor --limit 20
-switchcheck replay --tag invoice-extractor --model provider/candidate --check json-schema:schema.json
-switchcheck report <replay-id-or-name>
-```
+## Core components
 
-`replay --dry-run` must show selected-run count and known estimated cost before
-network calls. A configurable spend limit requires explicit confirmation.
+| Component | Responsibility |
+|---|---|
+| `client` | Record non-streaming application calls, usage, latency, and errors. Recording alone does not create ground truth. |
+| `datasets` | Import versioned, human-reviewed cases; validate task type and case contract before persistence. |
+| `eligibility` | Apply the hard product boundary and reject unsupported evaluations before model calls. |
+| `experiments` | Run eligible dataset cases against one candidate configuration and persist each attempt independently. |
+| `evaluators` | Execute only evaluators permitted for the case task type and return structured evidence. |
+| `calibration` | Compare one complete judge configuration with human labels and report agreement/disagreement. |
+| `store` | Own SQLite schema, migrations, data access, and reproducibility records. |
+| `report` | Show case states, aggregate metrics, evidence, calibration status, errors, and candidate configuration. |
+| `replay` | Preserve the foundation workflow for recorded calls; recorded output is a comparison baseline, not automatic truth. |
+| `cli` | Validate configuration and orchestrate import, evaluate, calibrate, inspect, and report workflows. |
 
-## Data ownership and model
+## Dataset case contract
 
-All persisted data is local. JSON fields preserve provider payloads without
-locking the relational schema to one provider.
-
-```text
-runs (original application calls)
-  1 ──── * replay_results (candidate outputs and verdicts)
-replays (one experiment)
-  1 ──── * replay_results
-```
-
-Minimum fields:
-
-- `runs`: ID, timestamp, tag, model, normalized request parameters, messages,
-  optional tools, output, raw response, token usage, cost, latency, error.
-- `replays`: ID, timestamp, display name, source selection/tag, target model,
-  prompt/parameter overrides, checker configuration, package version.
-- `replay_results`: replay/run IDs, candidate output and usage, cost, latency,
-  per-check verdict JSON, aggregate pass/score, error.
-
-Use UUIDs, UTC ISO-8601 timestamps, foreign keys enabled, and migrations tracked
-with `PRAGMA user_version`. Add indexes on `runs.tag`, `runs.created_at`, and
-`replay_results.replay_id`.
-
-## Replay lifecycle
-
-```text
-validate selection → create replay row → estimate cost → invoke candidate calls
-→ persist each result (including errors) → run checks → render report
-```
-
-Each replay result is persisted independently. An interrupted replay can be
-reported as partial and later resumed; it must never discard completed work.
-
-Concurrency defaults conservatively and is configurable. Retry only transient
-provider failures, using exponential backoff with jitter. Store the normalized
-request actually sent and warnings for dropped/unsupported parameters.
-
-## Evaluation contract
-
-Every checker returns a serializable result:
+The target logical schema is:
 
 ```json
 {
-  "checker": "json-schema",
-  "passed": true,
-  "score": 1.0,
-  "reason": "Output validates against the configured schema",
-  "details": {}
+  "id": "case-id",
+  "task_type": "extraction",
+  "messages": [{"role": "user", "content": "..."}],
+  "expected": {"field": "value"},
+  "reference": {"facts": {}},
+  "context": "optional source, policy, or retrieved passages",
+  "criteria": [
+    {"id": "criterion-id", "requirement": "Concrete observable requirement"}
+  ],
+  "evaluators": ["schema", "fields"],
+  "metadata": {},
+  "source_run_id": null
 }
 ```
 
-Multiple checkers use logical AND for the overall `passed` value. The report
-shows individual results so a failure remains explainable. A replay error is a
-failed case with its error retained; it is not silently excluded from the rate.
+Fields may be absent only when the task contract does not need them. Structured
+and discrete tasks require `expected`. Factual QA requires expected/reference
+facts. Support responses require policy/context and criteria. Summarization
+requires source and criteria. RAG answers require retrieved context and expected
+facts or criteria. Rubric free text requires concrete criteria.
+
+The current importer persists a contract version, `task_type`, messages,
+optional expected/reference/context evidence, structured criteria, declared
+evaluators, metadata, and provenance. It validates the task-specific evidence
+contract before writing anything.
+
+A recorded run may seed a case, but a reviewer or trusted dataset must establish
+its expected values, reference material, and criteria. An incumbent output is
+never promoted to truth automatically.
+
+## Evaluator registry
+
+The registry contains these public families only:
+
+- `ExactEvaluator`
+- `FieldEvaluator`
+- `SchemaEvaluator`
+- `NumericEvaluator`
+- `PatternEvaluator`
+- `ClassificationMetricsEvaluator`
+- `ToolCallEvaluator`
+- `CriteriaJudgeEvaluator`
+- optional `RequiredFactsEvaluator`
+
+The allow-list lives in `switchcheck.task_types.PERMITTED_EVALUATORS` and mirrors
+the authoritative scope document. Configuration loading and experiment startup
+both validate it. There is no default evaluator and no `UniversalEvaluator`.
+
+Deterministic evaluators run before a criteria judge. A judge cannot override a
+failed expected value or labeled decision. Pattern checks are deterministic
+building blocks for explicit constraints, not an escape hatch for arbitrary
+tasks.
+
+## Criteria judge isolation
+
+Only factual QA, support responses, summarization, RAG answers, and rubric free
+text can use `CriteriaJudgeEvaluator`. The judge request builder includes the
+task input, candidate response, explicit criteria, and supplied reference or
+context. It excludes model/provider identity, price, latency, and incumbent vs
+candidate labels.
+
+Judge output is schema-validated and contains an overall `pass | fail | review`
+verdict plus per-criterion verdicts and reasons. Malformed output or provider
+failure becomes `ERROR`; ambiguous evidence becomes `REVIEW`.
+
+A judge configuration is identified by model, prompt version, rubric version,
+parameters, and output-schema version. Reports label it uncalibrated until a
+human-reviewed calibration set has produced agreement metrics.
+
+## Result state and aggregation
+
+Use one explicit enum for all evaluated cases:
+
+```text
+PASS    all required checks pass
+FAIL    at least one required check clearly fails
+REVIEW  evidence is insufficient for automatic acceptance
+ERROR   candidate execution or evaluation failed technically
+```
+
+Aggregation uses the full denominator and separate counts for all four states.
+`REVIEW` and `ERROR` never increase pass rate. Reports may show operational
+error rate separately from behavioral failure rate.
+
+Task-specific metrics include:
+
+- classification/decision: accuracy, per-label precision/recall/F1, confusion
+  matrix, and metadata-grouped failure rates;
+- extraction/transformation: field-level and case-level accuracy;
+- tool selection: tool-name and argument-level accuracy;
+- judge tasks: per-criterion rates plus calibration agreement.
+
+## Persistence and reproducibility
+
+The existing local schema has runs, replays, replay results, datasets, and
+evaluation cases. The evaluation schema evolves to add dataset/task contract
+versions, reference/context and structured criteria, experiment configuration,
+candidate attempts, evaluator versions, four-state outcomes, judge calibration
+IDs, and aggregate metrics derived from retained case results.
+
+Store normalized requests actually sent, warnings for dropped parameters,
+package/schema versions, timestamps in UTC, and immutable configuration snapshots.
+Interrupted experiments retain completed attempts and can be reported as partial.
+
+## One-turn tool boundary
+
+The supported flow is:
+
+```text
+input -> model proposes one tool call -> evaluate proposed call
+```
+
+Switchcheck does not execute a tool and continue a model trajectory in the
+initial architecture. Multi-step tool use and agent traces require a later,
+separate task contract.
 
 ## Privacy and safety
 
-- Database and reports are local by default; no telemetry in v0.1.
-- Treat prompts and outputs as potentially sensitive. Document that reports and
-  database files must not be shared without review.
-- Provide a redaction callback before persistence, then add built-in patterns
-  only after the core flow works.
-- Never log API keys or authorization headers.
-- Make external model calls only during application calls or an explicit replay.
+- Data and reports remain local by default; no telemetry.
+- Prompts, context, outputs, and reports are sensitive and must be reviewed
+  before sharing.
+- Never store API keys or authorization headers.
+- Provider calls happen only for explicit application calls, experiments, or
+  calibration runs.
+- A Switchcheck result is test evidence, not safety certification for
+  high-stakes systems.
 
-## Repository layout
+## Implemented foundation versus target core
 
-```text
-src/switchcheck/
-  client.py        # recording wrapper
-  store.py         # migrations and queries
-  replay.py        # orchestration and retry/concurrency
-  pricing.py
-  report.py
-  cli.py
-  checkers/
-  templates/
-tests/
-examples/invoice_extractor/
-docs/
-```
+Implemented: recording, local storage, recorded-call replay, deterministic
+legacy checkers, static reports, versioned dataset import, explicit task types,
+structured criteria/reference/context, task/evaluator compatibility checks, a
+read-only dataset eligibility command, four-state verdict types, and a typed
+deterministic evaluator core for exact, field, schema, numeric, pattern, tool
+call, required-fact, and classification-metric evaluation.
 
-## Key decisions to revisit after v0.1
-
-- Whether the wrapper should expose LiteLLM responses directly or define its own
-  protocol.
-- A configuration file format and its precedence relative to CLI arguments.
-- Adding an LLM judge only once deterministic reporting is solid.
-- Trace and tool-call semantics for multi-turn agent support.
+Not yet implemented: dataset execution and evaluator configuration, four-state
+experiment persistence, criteria judging, judge calibration, and task-specific
+aggregate reports. The
+roadmap defines the delivery order and must not describe these as current
+capabilities.
