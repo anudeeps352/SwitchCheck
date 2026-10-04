@@ -1,272 +1,188 @@
 # Switchcheck architecture
 
-## Purpose and boundary
+## Purpose
 
-Switchcheck is a local-first evaluation system for deciding whether a model,
-prompt, or parameter change preserves acceptable behavior on supported,
-repeatable LLM tasks. Acceptability must be defined before the candidate output
-is seen.
-
-The authoritative product contract is
-[docs/supported-evaluation-scope.md](docs/supported-evaluation-scope.md). The
-architecture must reject unsupported tasks and evaluator combinations; it must
-never compensate for missing ground truth by invoking a generic judge.
-
-## System context
+The initial product compares multiple model or prompt configurations on a fixed
+set of reviewed classification cases. The architecture optimizes for a small,
+readable implementation and one public workflow:
 
 ```text
-application traffic / trusted sources / rules
-                     |
-                     v
-        sample -> redact -> deduplicate -> enrich
-                     |
-                     v
-           DRAFT -> review/approval -> versioned dataset
-                                            |
-                                            v
-                              eligibility -> experiment runner -> candidate model
-                                    |               |                    |
-                                    v               +-- candidate output-+
-                             evaluator registry -> case evidence -> report/review
+switchcheck.yaml -> switchcheck test -> HTML report
 ```
 
-The CLI is the composition layer. LiteLLM isolates provider-specific calls.
-SQLite owns local experiment state. Reports are self-contained artifacts and
-may contain sensitive application data.
+The authoritative product boundary is
+[docs/supported-evaluation-scope.md](docs/supported-evaluation-scope.md).
 
-## Eligibility and task model
+## System flow
 
-Every dataset case declares one `TaskType`:
-
-```python
-class TaskType(str, Enum):
-    CLASSIFICATION = "classification"
-    EXTRACTION = "extraction"
-    STRUCTURED_TRANSFORMATION = "structured_transformation"
-    TOOL_SELECTION = "tool_selection"
-    DECISION = "decision"
-    FACTUAL_QA = "factual_qa"
-    SUPPORT_RESPONSE = "support_response"
-    SUMMARIZATION = "summarization"
-    RAG_ANSWER = "rag_answer"
-    RUBRIC_FREE_TEXT = "rubric_free_text"
+```text
+                  switchcheck.yaml
+                         |
+                         v
+               load and validate config
+                         |
+                         v
+             render prompt for every case
+                         |
+                         v
+             run each configured model
+                         |
+                         v
+             parse scalar/JSON label output
+                         |
+                         v
+              compare expected labels
+                         |
+                         v
+            metrics + one comparison report
 ```
 
-Before making provider calls, the eligibility gate verifies that the case is a
-single independently evaluable interaction, expected behavior was specified in
-advance, the evidence is representable, and the task type is supported. It then
-validates every configured evaluator against the task/evaluator allow-list.
+Validation completes before provider calls. Internal persistence is initialized
+automatically and is not part of the normal user workflow.
 
-Cases outside this contract receive `Unsupported evaluation task`; they do not
-enter experiment aggregates.
+## Public configuration contract
 
-## Core components
+Version 1 intentionally contains few concepts:
+
+```yaml
+version: 1
+task: classification
+
+prompt: |
+  Classify the request. Return only JSON.
+  Request: {{input}}
+
+models:
+  - openai/gpt-4o-mini
+  - anthropic/claude-haiku-4-5
+
+cases:
+  - id: duplicate-charge
+    input: I was charged twice for my subscription.
+    expected:
+      category: billing
+      subcategory: duplicate_charge
+```
+
+Required top-level fields are `version`, `task`, `prompt`, `models`, and `cases`.
+For version 1, `task` must equal `classification`.
+
+Each case contains:
+
+- a stable `id`;
+- one `input` value inserted into `{{input}}`; and
+- `expected`, either a scalar label or a non-empty mapping of label fields.
+
+Evaluator names, dataset IDs, experiment IDs, database paths, and report IDs are
+not required configuration.
+
+## Small component model
+
+The target implementation has five understandable responsibilities:
 
 | Component | Responsibility |
 |---|---|
-| `client` | Record non-streaming application calls, usage, latency, and errors. Recording alone does not create ground truth. |
-| `datasets` | Import versioned, human-reviewed cases; validate task type and case contract before persistence. |
-| `dataset_builder` | Sample recorded traffic, redact/deduplicate it, attach authoritative evidence, and produce traceable drafts. |
-| `label_sources` | Resolve expectations from systems of record, deterministic rules, trusted datasets, or explicitly marked LLM suggestions. |
-| `review` | Route uncertain drafts, record approvals, and freeze approved dataset versions. |
-| `eligibility` | Apply the hard product boundary and reject unsupported evaluations before model calls. |
-| `experiments` | Run eligible dataset cases against one candidate configuration and persist each attempt independently. |
-| `evaluators` | Execute only evaluators permitted for the case task type and return structured evidence. |
-| `calibration` | Compare one complete judge configuration with human labels and report agreement/disagreement. |
-| `store` | Own SQLite schema, migrations, data access, and reproducibility records. |
-| `report` | Show case states, aggregate metrics, evidence, calibration status, errors, and candidate configuration. |
-| `replay` | Preserve the foundation workflow for recorded calls; recorded output is a comparison baseline, not automatic truth. |
-| `cli` | Validate configuration and orchestrate import, evaluate, calibrate, inspect, and report workflows. |
+| `config` | Load `switchcheck.yaml`, validate its version and classification cases, and return typed values. |
+| `provider` | Make one LiteLLM call and return normalized text/JSON, usage, latency, cost, or an error. |
+| `runner` | Expand the model/case matrix and coordinate calls without containing evaluation rules. |
+| `classification` | Parse candidate labels, compare expected fields, and calculate classification metrics. |
+| `report` | Render one self-contained comparison report for the entire run. |
 
-## Dataset case contract
+SQLite may retain reproducibility data for later inspection and UI use, but
+storage details stay behind a narrow interface. The CLI should only compose the
+components above.
 
-The target logical schema is:
+## Classification evaluation
 
-```json
-{
-  "id": "case-id",
-  "task_type": "extraction",
-  "messages": [{"role": "user", "content": "..."}],
-  "expected": {"field": "value"},
-  "reference": {"facts": {}},
-  "context": "optional source, policy, or retrieved passages",
-  "criteria": [
-    {"id": "criterion-id", "requirement": "Concrete observable requirement"}
-  ],
-  "evaluators": ["schema", "fields"],
-  "metadata": {},
-  "source_run_id": null
-}
-```
+Evaluation is deterministic. A scalar expected label compares with a scalar
+candidate label. A structured expected value compares every named field in the
+candidate JSON object.
 
-Fields may be absent only when the task contract does not need them. Structured
-and discrete tasks require `expected`. Factual QA requires expected/reference
-facts. Support responses require policy/context and criteria. Summarization
-requires source and criteria. RAG answers require retrieved context and expected
-facts or criteria. Rubric free text requires concrete criteria.
+The initial normalizer may trim surrounding whitespace and JSON code fences.
+It must not silently rewrite labels, guess aliases, or ask another model whether
+two labels mean the same thing.
 
-The current importer persists a contract version, `task_type`, messages,
-optional expected/reference/context evidence, structured criteria, declared
-evaluators, metadata, and provenance. It validates the task-specific evidence
-contract before writing anything.
-
-A recorded run may seed a case, but a reviewer or trusted dataset must establish
-its expected values, reference material, and criteria. An incumbent output is
-never promoted to truth automatically.
-
-## Assisted dataset-building pipeline
-
-Dataset creation is designed to become assisted rather than permanently manual:
+Each model/case attempt ends as:
 
 ```text
-1. collect       select production runs or import candidate inputs
-2. protect       redact configured sensitive fields before draft persistence
-3. curate        deduplicate, cluster, stratify, and select coverage cases
-4. enrich        query authoritative records/rules or import trusted labels
-5. suggest       optionally ask an LLM for missing labels or criteria
-6. review        prioritize conflicts, low confidence, and sampled auto-labels
-7. approve       apply a versioned approval policy and freeze a dataset version
-8. refresh       detect new traffic coverage and propose the next draft version
+PASS   every expected label matches
+FAIL   a label is missing or differs
+ERROR  provider, parsing, configuration, or evaluation failed technically
 ```
 
-Automation output is auditable. Each case records its source run/input, selection
-reason, redaction policy version, label source, source snapshot/version, optional
-suggesting model configuration, confidence, reviewer/approval policy, timestamps,
-and change history.
+Reports retain every attempt. Errors are never discarded or counted as passes.
 
-The state machine is:
+## Persistence model
 
-```text
-DRAFT -> IN_REVIEW -> APPROVED -> RETIRED
-  |          |            |
-  +----------+------------+--> new version when evidence changes
+Persist only what is required to reproduce and inspect a comparison:
+
+- config version and a snapshot of the resolved config;
+- model identifier and parameters actually used;
+- case ID, rendered prompt, and expected labels;
+- raw and parsed candidate output;
+- state and field-level reasons;
+- latency, token usage, and provider-reported cost; and
+- timestamps and package version.
+
+The existing SQLite implementation may be adapted instead of replaced. New
+tables or abstractions should be added only when the unified workflow needs
+them.
+
+## CLI boundary
+
+The primary command is:
+
+```powershell
+switchcheck test [CONFIG]
 ```
 
-Only `APPROVED` dataset versions can start an evaluation. Authoritative-system,
-deterministic-rule, and trusted-dataset labels may pass through an automated
-approval policy. LLM-suggested labels remain drafts until independently
-confirmed; model confidence alone is not approval.
+With no argument, it discovers `switchcheck.yaml` in the current directory. It
+validates, runs, persists, calculates metrics, and writes the report in one
+operation.
 
-## Evaluator registry
+Existing `dataset`, `evaluate`, `record/replay`, and standalone report commands
+are prototype or advanced interfaces. They may remain temporarily for
+compatibility, but new product behavior should not require them.
 
-The registry contains these public families only:
+## Report boundary
 
-- `ExactEvaluator`
-- `FieldEvaluator`
-- `SchemaEvaluator`
-- `NumericEvaluator`
-- `PatternEvaluator`
-- `ClassificationMetricsEvaluator`
-- `ToolCallEvaluator`
-- `CriteriaJudgeEvaluator`
-- optional `RequiredFactsEvaluator`
+One run produces one report containing:
 
-The allow-list lives in `switchcheck.task_types.PERMITTED_EVALUATORS` and mirrors
-the authoritative scope document. Configuration loading and experiment startup
-both validate it. There is no default evaluator and no `UniversalEvaluator`.
+- a model comparison summary;
+- per-model classification metrics;
+- latency, token, cost, failure, and error totals;
+- case-level expected and candidate labels; and
+- field-level failure reasons.
 
-Deterministic evaluators run before a criteria judge. A judge cannot override a
-failed expected value or labeled decision. Pattern checks are deterministic
-building blocks for explicit constraints, not an escape hatch for arbitrary
-tasks.
+The future local UI must read the same persisted comparison data or call the
+same application service. It must not implement a second runner or evaluator.
 
-## Criteria judge isolation
+## Simplicity rules
 
-Only factual QA, support responses, summarization, RAG answers, and rubric free
-text can use `CriteriaJudgeEvaluator`. The judge request builder includes the
-task input, candidate response, explicit criteria, and supplied reference or
-context. It excludes model/provider identity, price, latency, and incumbent vs
-candidate labels.
+- Do not add a generic evaluator interface for the MVP path.
+- Do not expose internal class names in configuration.
+- Do not create abstractions for hypothetical task types.
+- Keep provider-specific behavior behind LiteLLM.
+- Keep network-free tests by injecting a fake completion function.
+- Prefer one obvious data flow over separate replay and dataset workflows.
+- Delete superseded orchestration after compatibility needs end.
 
-Judge output is schema-validated and contains an overall `pass | fail | review`
-verdict plus per-criterion verdicts and reasons. Malformed output or provider
-failure becomes `ERROR`; ambiguous evidence becomes `REVIEW`.
+## Future extension rule
 
-A judge configuration is identified by model, prompt version, rubric version,
-parameters, and output-schema version. Reports label it uncalibrated until a
-human-reviewed calibration set has produced agreement metrics.
+Structured extraction is the first candidate after classification. It should be
+added as a separate, explicit contract only after the classification workflow
+is validated with users. Other tasks follow the same rule.
 
-## Result state and aggregation
-
-Use one explicit enum for all evaluated cases:
-
-```text
-PASS    all required checks pass
-FAIL    at least one required check clearly fails
-REVIEW  evidence is insufficient for automatic acceptance
-ERROR   candidate execution or evaluation failed technically
-```
-
-Aggregation uses the full denominator and separate counts for all four states.
-`REVIEW` and `ERROR` never increase pass rate. Reports may show operational
-error rate separately from behavioral failure rate.
-
-Task-specific metrics include:
-
-- classification/decision: accuracy, per-label precision/recall/F1, confusion
-  matrix, and metadata-grouped failure rates;
-- extraction/transformation: field-level and case-level accuracy;
-- tool selection: tool-name and argument-level accuracy;
-- judge tasks: per-criterion rates plus calibration agreement.
-
-## Persistence and reproducibility
-
-The existing local schema has runs, replays, replay results, datasets, and
-evaluation cases. The evaluation schema evolves to add dataset/task contract
-versions, reference/context and structured criteria, experiment configuration,
-candidate attempts, evaluator versions, four-state outcomes, judge calibration
-IDs, and aggregate metrics derived from retained case results.
-
-The dataset-building schema also needs lifecycle state, immutable dataset
-versions, per-field provenance, source snapshot/version, selection and redaction
-metadata, suggestion configuration, confidence, approval policy, reviewer, and
-audit events. Dataset lifecycle states must not reuse the evaluation result
-enum: `APPROVED` describes trusted test data, while `PASS` describes a candidate
-result.
-
-Store normalized requests actually sent, warnings for dropped parameters,
-package/schema versions, timestamps in UTC, and immutable configuration snapshots.
-Interrupted experiments retain completed attempts and can be reported as partial.
-
-## One-turn tool boundary
-
-The supported flow is:
-
-```text
-input -> model proposes one tool call -> evaluate proposed call
-```
-
-Switchcheck does not execute a tool and continue a model trajectory in the
-initial architecture. Multi-step tool use and agent traces require a later,
-separate task contract.
+A future task must define its config, evidence, parsing, deterministic or
+calibrated evaluation rules, states, metrics, tests, and report sections before
+being advertised.
 
 ## Privacy and safety
 
-- Data and reports remain local by default; no telemetry.
-- Prompts, context, outputs, and reports are sensitive and must be reviewed
-  before sharing.
-- Never store API keys or authorization headers.
-- Provider calls happen only for explicit application calls, experiments, or
-  calibration runs.
-- A Switchcheck result is test evidence, not safety certification for
-  high-stakes systems.
-
-## Implemented foundation versus target core
-
-Implemented: recording, local storage, recorded-call replay, deterministic
-legacy checkers, static reports, versioned dataset import, explicit task types,
-structured criteria/reference/context, task/evaluator compatibility checks, a
-read-only dataset eligibility command, four-state verdict types, and a typed
-deterministic evaluator core for exact, field, schema, numeric, pattern, tool
-call, required-fact, and classification-metric evaluation.
-
-An initial sequential dataset runner, four-state experiment persistence,
-task-aware aggregate metrics, and self-contained reports are implemented for
-exact, field, schema, numeric, one-tool-call, and required-fact evaluation.
-Schema and numeric tolerance are currently experiment-level CLI configuration.
-
-Not yet implemented: per-case evaluator configuration, parallel/resumable
-dataset execution, criteria judging, judge calibration, richer metadata-grouped
-metrics, and report comparisons. The
-roadmap defines the delivery order and must not describe these as current
-capabilities.
+- Configs, prompts, expected labels, outputs, databases, and reports remain
+  local by default.
+- Never persist API keys or authorization headers.
+- Provider calls occur only after a validated explicit `test` command.
+- Reports can contain sensitive application data and must be handled
+  accordingly.
+- Switchcheck results are regression evidence, not safety certification.

@@ -2,189 +2,176 @@
 
 ## Objective
 
-Deliver a trustworthy evaluation workflow for the ten task types in the
-[supported evaluation scope](docs/supported-evaluation-scope.md). The roadmap is
-contract-first: each milestone expands implementation inside that boundary. A
-new task type requires its own expected evidence, evaluator mapping, tests, and
-documentation before it can be advertised.
+Deliver the smallest useful Switchcheck: one configuration file, one command,
+and one report for comparing models or prompts on classification cases.
+
+```text
+switchcheck.yaml -> switchcheck test -> comparison report
+```
+
+The MVP supports classification only. Other task families remain backlog items
+until the classification workflow is easy to install, understand, modify, and
+use successfully.
+
+## Product-development rules
+
+- Optimize the primary workflow before adding evaluator breadth.
+- Keep user-visible concepts to prompt, models, cases, expected labels, and
+  report.
+- Infer deterministic evaluators from `task: classification`.
+- Do not require users to initialize storage, import a dataset, select evaluator
+  classes, copy experiment IDs, or run a second report command.
+- Prefer small functions and ordinary data structures over frameworks and deep
+  abstraction layers.
+- Preserve legacy commands only while they help migration or reuse tested code.
+- Do not advertise prototype task types as supported.
+- Add the UI only after the config and runner contract are stable.
+
+## Reference project
+
+[Promptfoo](https://github.com/promptfoo/promptfoo) is the primary external
+reference for configuration-driven LLM evaluation, multi-model execution, CLI
+usability, and result presentation. Use it to study established workflows and
+terminology, not as a feature checklist Switchcheck must reproduce.
+
+Switchcheck intentionally remains smaller: the MVP implements only deterministic
+classification regression testing through one config, one command, and one
+report.
 
 ## Current state
 
-The foundation can record and replay non-streaming calls, run several legacy
-deterministic checks, persist results, produce static reports, and import labeled
-JSONL datasets. Dataset imports now require a supported `task_type` and reject
-declared task/evaluator combinations outside the allow-list. Versioned cases now
-store structured criteria, reference/context evidence, and presence information;
-task-specific eligibility can be checked without a provider call.
+The repository contains useful prototype pieces: LiteLLM provider calls,
+record/replay, SQLite persistence, JSONL dataset import, deterministic
+evaluators, classification metrics, and HTML reports. It also exposes more task
+types and workflow steps than the MVP needs.
 
-The product now has an initial sequential `evaluate` path with four-state
-persistence, task-aware metrics, a self-contained report, and an offline
-end-to-end example. Criteria judging, parallel/resumable execution, experiment
-comparison, and the full metadata-grouped metric set are planned—not shipped.
+The next work is simplification and composition, not another evaluator family.
 
 ## Delivery roadmap
 
 | Milestone | Outcome | Exit criteria |
 |---|---|---|
-| v0.1 foundation | Preserve the local record/replay/check/report workflow. | Offline tests, schema migrations, privacy guidance, package build, and example flow pass. |
-| v0.2 contracts and deterministic evaluation | Run labeled classification, extraction, structured transformation, tool selection, and decision datasets. | Eligibility gate and evidence validation work; evaluator registry rejects invalid combinations; deterministic evaluator families run; every case is `PASS`, `FAIL`, or `ERROR`; task-specific metrics and reproducible reports are available. |
-| v0.3 assisted dataset building | Reduce manual dataset work without manufacturing ground truth. | Recorded/imported inputs can be sampled, redacted, deduplicated, enriched from authoritative sources/rules, and turned into traceable drafts; LLM suggestions remain unapproved; approval policies create immutable runnable versions. |
-| v0.4 facts and four-state results | Add factual QA and deterministic fact checks, plus human review routing. | Required/prohibited facts are versioned; `REVIEW` is persisted and never counted as pass; all aggregates retain errors; metadata-grouped analysis works. |
-| v0.5 calibrated criteria judge | Add support response, summarization, RAG answer, and rubric free text. | Concrete criteria/context validation works; judge inputs are blinded; output schema is enforced; configurations are versioned; human calibration reports agreement and disagreements; uncalibrated judges are visibly marked. |
-| v0.6 review workflow | Make draft approval and uncertain evaluation cases efficient to inspect. | A local or web workflow supports dataset lifecycle states, provenance/conflicts, approval, all four evaluation states, per-criterion evidence, human verdicts, and calibration-set curation. |
-| Later: agent evaluation | Introduce a separate multi-step contract. | Work begins only after trajectory semantics, expected tool/task outcomes, and dedicated evaluators are designed; it is not an extension of the generic criteria judge. |
+| v0.1 unified classification workflow | One config and one command compare multiple models and write one report. | `switchcheck test` discovers or accepts a config, validates before calls, runs the complete model/case matrix, exits non-zero on configured regression failure, and writes one self-contained report. |
+| v0.1 usability hardening | A new user can succeed from the README without learning internals. | `switchcheck init` optionally creates an example config, errors name the exact config location, dry-run shows planned calls, credentials are checked clearly, and the offline example uses the same command. |
+| v0.2 classification dataset assistance | Reduce manual case maintenance without inventing labels. | Import/export and production-input drafting feed the same config/case model; suggested labels are visibly unapproved; trusted labels retain provenance. |
+| v0.3 local UI | Browse the same runs and reports through a local interface. | The UI calls the same application service as the CLI and introduces no separate evaluation semantics. |
+| Later: structured extraction | Add the next deterministic task only after classification demand is validated. | A simple config contract, automatic schema/field checks, representative tests, and useful field metrics exist. |
+| Later: other task contracts | Add one task at a time in response to evidence. | Each task has predefined evidence, safe automatic evaluator selection, tests, reports, and a clearly documented boundary. |
 
 ## Immediate implementation sequence
 
-### 1. Complete the case contract (implemented)
+### 1. Freeze the MVP config contract
 
-- Versioned `reference`, `context`, and structured `criteria` fields are stored.
-- Task-specific requirements are validated before persistence: expected labels for
-  discrete tasks, expected fields for structured tasks, policy/source/retrieved
-  context where required, and observable rubric criteria for judge tasks.
-- A dataset contract version and migration path preserve existing local
-  cases whose `task_type` is null; require explicit relabeling rather than
-  guessing their type.
-- `switchcheck dataset check` performs eligibility checks without provider calls.
+Use a single `switchcheck.yaml`:
 
-### 2. Build the deterministic evaluator registry (core implemented)
-
-- `ExactEvaluator`, `FieldEvaluator`, `SchemaEvaluator`,
-  `NumericEvaluator`, `ClassificationMetricsEvaluator`, and
-  `ToolCallEvaluator` now have typed, tested implementations.
-- `PatternEvaluator` is implemented as a constraint primitive and
-  `RequiredFactsEvaluator` checks only explicitly supplied facts.
-- Validate configurations at import and again at experiment start.
-- Remove reliance on an incumbent output as expected truth in dataset
-  experiments; keep recorded replay as a separate comparison workflow.
-
-### 3. Build the assisted dataset pipeline
-
-Before completing the experiment runner, add the assisted dataset-building
-pipeline so production traffic does not require fully manual conversion:
-
-- Add dataset lifecycle states `DRAFT`, `IN_REVIEW`, `APPROVED`, and `RETIRED`.
-- Persist immutable dataset versions and per-field label/reference provenance.
-- Add `dataset draft` to sample recorded runs by tag, time, metadata, and failure
-  strata without copying incumbent outputs into expected fields.
-- Add configurable redaction before draft persistence and record the policy
-  version used.
-- Add exact and semantic deduplication, clustering, coverage selection, and
-  selection-reason metadata. These guide curation; they do not determine truth.
-- Add label-source adapters for systems of record, deterministic rules/test
-  oracles, and trusted versioned datasets.
-- Allow an LLM to suggest missing labels, facts, or observable criteria while
-  recording its complete configuration and marking all output `llm_suggested`.
-- Route source disagreements, missing evidence, low confidence, novel clusters,
-  and audit samples to review.
-- Add versioned approval policies. Only human-confirmed or policy-approved
-  authoritative evidence can produce an `APPROVED` runnable dataset version.
-- Add refresh jobs that compare new traffic with approved coverage and produce a
-  new draft version rather than mutating historical datasets.
-
-Suggested CLI progression:
-
-```text
-switchcheck dataset draft --tag support --sample 200
-switchcheck dataset enrich support-draft --source resolved-tickets.jsonl
-switchcheck dataset suggest support-draft --missing-only
-switchcheck dataset review support-draft
-switchcheck dataset approve support-draft --name support-v1
-switchcheck dataset refresh support-v1 --tag support
+```yaml
+version: 1
+task: classification
+prompt: |
+  Classify the request. Return only JSON.
+  Request: {{input}}
+models:
+  - openai/gpt-4o-mini
+  - anthropic/claude-haiku-4-5
+cases:
+  - id: duplicate-charge
+    input: I was charged twice.
+    expected:
+      category: billing
 ```
 
-### 4. Run dataset experiments (initial sequential slice implemented)
+Keep version 1 deliberately small. Optional model parameters and report output
+path may be added only if they do not complicate the common example.
 
-- A named dataset and candidate configuration can be selected with
-  `switchcheck evaluate`.
-- The experiment and pending case attempts are persisted before provider execution.
-- Use bounded concurrency and retry only transient provider failures.
-- Parse candidate text, structured output, or a single proposed tool call based
-  on the declared task contract.
-- Terminal state, evaluator evidence, latency, usage, and candidate output are
-  stored. Parallelism, retry/resume, normalized request capture, and evaluator
-  versions remain.
+### 2. Add `switchcheck test`
 
-### 5. Introduce four-state outcomes and metrics
+The command must:
 
-- Replace boolean-only experiment outcomes with `PASS | FAIL | REVIEW | ERROR`.
-- Define aggregation denominators explicitly; never drop review/error cases.
-- Accuracy, per-label precision/recall/F1, confusion data, field accuracy, and
-  tool/argument accuracy are available in initial reports. Add case accuracy by
-  task and metadata-grouped failure rates.
-- Keep legacy replay reports honest about their boolean checker semantics until
-  they migrate to the experiment result model.
+1. discover `switchcheck.yaml` or accept an explicit path;
+2. parse and validate the whole config before provider calls;
+3. initialize internal storage automatically;
+4. render `{{input}}` for every case;
+5. run every configured model against every case;
+6. parse scalar or JSON label output;
+7. evaluate expected labels deterministically;
+8. calculate classification metrics;
+9. write one comparison report; and
+10. print the report path and a compact model summary.
 
-### 6. Add factual QA before judging prose
+### 3. Consolidate the runner
 
-- Represent required facts, prohibited facts, numeric values, and structured
-  assertions explicitly.
-- Evaluate them deterministically and expose failures at fact level.
-- Permit a criteria judge only as an optional second layer; it cannot override a
-  deterministic fact failure.
+Reuse tested provider, persistence, metric, and report code where it remains
+clear. Introduce no generic orchestration framework. The preferred core is:
 
-### 7. Add and calibrate the criteria judge
+```text
+load_config -> validate -> build_cases -> run_matrix -> evaluate -> write_report
+```
 
-- Validate criteria as concrete observable requirements.
-- Build task-specific prompt templates that always include supplied source,
-  policy, or retrieved context when the task requires it.
-- Blind the judge to model/provider names, cost, latency, and candidate status.
-- Enforce the `pass | fail | review` per-criterion output schema.
-- Persist the complete judge configuration with every result.
-- Compare against human labels and report overall agreement, case count,
-  disagreements, and criterion agreement before calling a judge trusted.
+Functions should accept explicit typed values and return ordinary dataclasses.
+Keep file parsing, provider calls, evaluation, persistence, and HTML rendering
+separate so each can be tested without network access.
 
-### 8. Reporting and user experience
+### 4. Produce one comparison report
 
-- Lead every report with task type, dataset/version, evaluator configuration,
-  calibration status, and counts for all four states.
-- Show task-specific metrics only where meaningful.
-- Make unsupported-task errors actionable and link to the scope document.
-- Use product copy consistently: “preserves expected behavior for supported
-  tasks,” never “determines whether any LLM output is good.”
+The report leads with a table containing one row per model:
 
-## Required acceptance datasets
+- pass rate and case count;
+- failures and errors;
+- field and label metrics;
+- total latency, tokens, and provider-reported cost; and
+- regression details by case.
 
-Maintain small offline fixtures for all ten task types. Each fixture includes
-passing, failing, malformed/error, and boundary cases. Judge-task fixtures also
-include `REVIEW`, unsupported-claim examples, and human verdicts for calibration.
+Every failed case shows input, expected labels, candidate labels, and a direct
+reason. No experiment ID should be needed to find the report from the normal
+command output.
 
-At least these cross-cutting tests are required:
+### 5. Make the example use the real UX
 
-- every unsupported task type is rejected before provider execution;
-- no `DRAFT`, `IN_REVIEW`, or `RETIRED` dataset can start an experiment;
-- every expected field exposes its provenance and source version;
-- incumbent and LLM-suggested outputs never become truth without independent
-  confirmation or an explicitly validated approval policy;
-- automated authoritative labels are reproducible from a versioned source or
-  rule, and source disagreements route to review;
-- refreshing a dataset creates a new version and cannot mutate past results;
-- every disallowed task/evaluator pair is rejected;
-- deterministic tasks run without an LLM judge;
-- judge requests contain required context and exclude blinded metadata;
-- `REVIEW` is not counted as pass;
-- `ERROR` remains in the denominator and report;
-- a source model response is never silently treated as ground truth; and
-- one-tool-call evaluation never executes or continues the tool trajectory.
+Replace the multi-command support-ticket walkthrough with a checked-in example
+config and one offline-capable command. The README quickstart and automated
+smoke test must exercise the same public path.
 
-## Quality gates
+### 6. Reduce exposed complexity
+
+After the unified workflow is stable:
+
+- mark dataset import/check/evaluate and record/replay/report as advanced or
+  legacy;
+- stop adding functionality to those command paths;
+- remove duplicate orchestration where `switchcheck test` supersedes it; and
+- retain internal persistence only when it helps reproducibility or the future
+  UI.
+
+## Acceptance tests for v0.1
+
+- a minimal classification config runs offline with fake completions;
+- two models and two cases create four retained results;
+- malformed config fails before any provider call;
+- an unsupported `task` fails with an actionable message;
+- scalar labels and structured label fields are evaluated correctly;
+- malformed model output is visible as `ERROR` or a documented failure state;
+- missing or incorrect labels fail;
+- provider errors remain in totals;
+- one HTML report compares every configured model;
+- CLI exit status can gate CI; and
+- README commands match the tested behavior.
+
+## Code-quality gates
 
 Every change must pass Ruff formatting/linting, Pyright, offline pytest, package
-build, schema migration tests, and the synthetic smoke flow. User-facing changes
-must update README, the scope document when the contract changes, architecture,
-roadmap, examples, and changelog as applicable.
+build, and the public workflow smoke test. Normal CI must not require provider
+credentials or network access.
 
-Normal CI must not require provider credentials or network access. Live-provider
-tests are manual, spend-capped, and excluded from correctness gates.
+Prefer deleting obsolete complexity over maintaining parallel implementations.
+Avoid speculative abstractions for future task types.
 
-## Explicit non-goals
+## Explicitly deferred
 
-Do not schedule a universal evaluator, arbitrary “answer quality” score,
-creative preference grader, end-to-end retrieval grader, autonomous coding-agent
-grader, or safety certification feature. Do not use embeddings, clustering, or
-learned evaluators as correctness verdicts unless a future scoped milestone
-defines their task contract and validates them against labeled data.
-
-Agent traces remain later work. Packaging, provider breadth, hosted accounts,
-TypeScript support, price catalogs, and release automation are secondary to a
-valid, reproducible evaluation core.
+- extraction and all other task families;
+- LLM judges and judge calibration;
+- autonomous dataset enrichment pipelines;
+- multi-step agents and traces;
+- hosted accounts and collaboration;
+- production observability;
+- a web UI before the CLI/config contract stabilizes; and
+- universal evaluation or model-replacement claims.
