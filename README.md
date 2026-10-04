@@ -58,6 +58,19 @@ Free-text task types additionally use structured `criteria` records and, where
 required, `context` or `reference`. See the
 [case contract](architecture.md#dataset-case-contract).
 
+### Dataset creation: current and planned
+
+Dataset import is currently manual: a developer or reviewer prepares JSONL and
+runs `switchcheck dataset import`. The planned pipeline automates traffic
+sampling, redaction, deduplication, coverage selection, enrichment from systems
+of record/rules/trusted datasets, draft label and rubric suggestions, review
+prioritization, approval, versioning, and refresh.
+
+Automation does not make an incumbent or label-generating model authoritative.
+Model-generated expectations remain `DRAFT`; only an approved case backed by
+human review or configured authoritative provenance can be used as ground truth.
+See the [assisted dataset-building pipeline](architecture.md#assisted-dataset-building-pipeline).
+
 ## Try the complete workflow offline
 
 The synthetic invoice-extractor example records two calls, replays them with

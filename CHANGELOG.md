@@ -9,6 +9,9 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- Added the planned assisted dataset-building lifecycle: automated sampling,
+  redaction/deduplication, authoritative enrichment, LLM drafts, provenance,
+  review routing, approval policies, immutable versions, and refresh.
 - Defined the ten supported evaluation task types, explicit evaluator mapping,
   calibrated-judge boundary, four final case states, and unsupported use cases.
 - Dataset imports now require `task_type` and reject declared evaluator/task

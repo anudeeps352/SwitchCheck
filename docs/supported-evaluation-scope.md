@@ -27,6 +27,40 @@ An evaluation is supported only when every answer below is yes:
 If any answer is no, Switchcheck must return `Unsupported evaluation task`. It
 must not silently invoke a generic LLM judge.
 
+## Ground-truth provenance and automation
+
+The requirement that acceptable behavior is known in advance does not require
+every case to be typed and labeled manually. Switchcheck may automate input
+selection, redaction, deduplication, enrichment, draft labeling, review
+prioritization, approval, versioning, and refresh.
+
+Every expected value, reference fact, context block, and criterion must retain
+its provenance. Initially supported provenance classes are:
+
+- `human_reviewed`: entered or confirmed by an identified reviewer;
+- `authoritative_system`: copied from a configured system of record;
+- `deterministic_rule`: calculated by a versioned rule or test oracle;
+- `trusted_dataset`: imported from a named, versioned source; and
+- `llm_suggested`: proposed by a model but not yet trusted.
+
+An incumbent model output is also untrusted unless independently confirmed. An
+LLM suggestion or incumbent output may create a `DRAFT` case, but it must not
+become evaluation ground truth merely because it exists or has high model
+confidence.
+
+Dataset lifecycle states are separate from evaluation result states:
+
+- `DRAFT`: automatically collected or suggested; not runnable as ground truth.
+- `IN_REVIEW`: awaiting human confirmation or authoritative resolution.
+- `APPROVED`: provenance and approval policy permit evaluation.
+- `RETIRED`: retained for audit but excluded from new experiments.
+
+Cases backed by an authoritative system, deterministic rule, or trusted dataset
+may be approved automatically when a versioned approval policy explicitly
+allows it. Human review is required for LLM-suggested expectations unless a
+future calibrated labeling policy is separately validated and explicitly
+enabled. Dataset reports must expose provenance and approval coverage.
+
 ## Supported task types
 
 | `task_type` | Contract | Evaluation |

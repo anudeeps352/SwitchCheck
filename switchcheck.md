@@ -50,9 +50,11 @@ send it to a generic judge.
 ## User workflow
 
 ```text
-record or author cases
-    -> review and label expected behavior
-    -> declare task type and permitted evaluators
+record/import candidate inputs
+    -> automatically redact, deduplicate, sample, and enrich
+    -> create DRAFT cases with provenance
+    -> review uncertainty or apply an authoritative approval policy
+    -> freeze an APPROVED dataset version
     -> validate eligibility without provider calls
     -> run candidate model/prompt/parameters
     -> evaluate against expected evidence
@@ -61,6 +63,14 @@ record or author cases
 
 Recorded application traffic is useful input for building a dataset, but the
 recorded model output is never automatically ground truth.
+
+Expected answers can be automated safely when they come from a configured
+system of record, deterministic business rule/test oracle, or trusted versioned
+dataset. An LLM may suggest labels and criteria to reduce reviewer effort, but
+those suggestions remain drafts until independently confirmed. Review automation
+focuses human attention on disagreements, low-confidence cases, novel clusters,
+and a sample of automatically approved cases rather than requiring every value
+to be typed manually.
 
 ## Evaluation principles
 
@@ -99,6 +109,8 @@ Not yet implemented:
 - four-state experiment results;
 - calibrated criteria judging; and
 - human-review and calibration workflows.
+- assisted dataset drafting, authoritative enrichment, provenance, approval,
+  immutable versioning, and automatic refresh.
 
 This distinction must remain visible in user-facing documentation. Planned
 capabilities must not be described as shipped.

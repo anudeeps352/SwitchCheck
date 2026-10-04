@@ -15,13 +15,19 @@ never compensate for missing ground truth by invoking a generic judge.
 ## System context
 
 ```text
-application traffic --> recorder --> local run store
-                                      |
-labeled dataset --> eligibility --> experiment runner --> candidate model
-                     gate             |                    |
-                     |                +-- candidate output-+
+application traffic / trusted sources / rules
+                     |
                      v
-               evaluator registry --> case state + evidence --> report/review
+        sample -> redact -> deduplicate -> enrich
+                     |
+                     v
+           DRAFT -> review/approval -> versioned dataset
+                                            |
+                                            v
+                              eligibility -> experiment runner -> candidate model
+                                    |               |                    |
+                                    v               +-- candidate output-+
+                             evaluator registry -> case evidence -> report/review
 ```
 
 The CLI is the composition layer. LiteLLM isolates provider-specific calls.
@@ -60,6 +66,9 @@ enter experiment aggregates.
 |---|---|
 | `client` | Record non-streaming application calls, usage, latency, and errors. Recording alone does not create ground truth. |
 | `datasets` | Import versioned, human-reviewed cases; validate task type and case contract before persistence. |
+| `dataset_builder` | Sample recorded traffic, redact/deduplicate it, attach authoritative evidence, and produce traceable drafts. |
+| `label_sources` | Resolve expectations from systems of record, deterministic rules, trusted datasets, or explicitly marked LLM suggestions. |
+| `review` | Route uncertain drafts, record approvals, and freeze approved dataset versions. |
 | `eligibility` | Apply the hard product boundary and reject unsupported evaluations before model calls. |
 | `experiments` | Run eligible dataset cases against one candidate configuration and persist each attempt independently. |
 | `evaluators` | Execute only evaluators permitted for the case task type and return structured evidence. |
@@ -104,6 +113,39 @@ contract before writing anything.
 A recorded run may seed a case, but a reviewer or trusted dataset must establish
 its expected values, reference material, and criteria. An incumbent output is
 never promoted to truth automatically.
+
+## Assisted dataset-building pipeline
+
+Dataset creation is designed to become assisted rather than permanently manual:
+
+```text
+1. collect       select production runs or import candidate inputs
+2. protect       redact configured sensitive fields before draft persistence
+3. curate        deduplicate, cluster, stratify, and select coverage cases
+4. enrich        query authoritative records/rules or import trusted labels
+5. suggest       optionally ask an LLM for missing labels or criteria
+6. review        prioritize conflicts, low confidence, and sampled auto-labels
+7. approve       apply a versioned approval policy and freeze a dataset version
+8. refresh       detect new traffic coverage and propose the next draft version
+```
+
+Automation output is auditable. Each case records its source run/input, selection
+reason, redaction policy version, label source, source snapshot/version, optional
+suggesting model configuration, confidence, reviewer/approval policy, timestamps,
+and change history.
+
+The state machine is:
+
+```text
+DRAFT -> IN_REVIEW -> APPROVED -> RETIRED
+  |          |            |
+  +----------+------------+--> new version when evidence changes
+```
+
+Only `APPROVED` dataset versions can start an evaluation. Authoritative-system,
+deterministic-rule, and trusted-dataset labels may pass through an automated
+approval policy. LLM-suggested labels remain drafts until independently
+confirmed; model confidence alone is not approval.
 
 ## Evaluator registry
 
@@ -174,6 +216,13 @@ evaluation cases. The evaluation schema evolves to add dataset/task contract
 versions, reference/context and structured criteria, experiment configuration,
 candidate attempts, evaluator versions, four-state outcomes, judge calibration
 IDs, and aggregate metrics derived from retained case results.
+
+The dataset-building schema also needs lifecycle state, immutable dataset
+versions, per-field provenance, source snapshot/version, selection and redaction
+metadata, suggestion configuration, confidence, approval policy, reviewer, and
+audit events. Dataset lifecycle states must not reuse the evaluation result
+enum: `APPROVED` describes trusted test data, while `PASS` describes a candidate
+result.
 
 Store normalized requests actually sent, warnings for dropped parameters,
 package/schema versions, timestamps in UTC, and immutable configuration snapshots.

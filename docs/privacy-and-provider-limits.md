@@ -12,6 +12,15 @@ in the application before calling `switchcheck.client.chat`, and use synthetic
 or approved data for demonstrations. Never place API keys, authorization
 headers, or secrets in prompts, tags, or command-line arguments.
 
+The planned assisted dataset pipeline must apply configured redaction before a
+production input is persisted as a draft case and must record the redaction
+policy version. Source-system enrichment should request only fields needed for
+the evaluation contract, use read-only least-privilege credentials, and record
+source identifiers/versions without copying unnecessary sensitive records.
+LLM-assisted label or rubric suggestions are external provider calls: they must
+be opt-in, visibly identify what data will be sent, and follow the same provider
+retention and regional-processing warnings as replay.
+
 The current wrapper supports non-streaming chat completions only. Streaming,
 tool-call execution, multi-turn traces, and agent replay are outside the v0.1
 scope. A replay makes a new call to the candidate provider, so it is subject to
