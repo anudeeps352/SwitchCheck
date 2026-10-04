@@ -25,6 +25,9 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- Dataset-level `--task-type` defaults and an initial `switchcheck evaluate`
+  workflow with preflight validation and persisted four-state results.
+
 - SQLite database initialization, schema versioning, and migration safeguards.
 - LiteLLM chat recording wrapper, durable run history, and `switchcheck runs`.
 - Candidate-model replay with dry-run selection, bounded concurrency, transient

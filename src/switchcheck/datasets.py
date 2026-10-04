@@ -49,9 +49,10 @@ def import_jsonl_dataset(
     name: str,
     source: Path,
     description: str | None = None,
+    task_type: TaskType | None = None,
 ) -> DatasetImport:
     """Validate a JSONL file completely, then persist it as a named dataset."""
-    cases = _read_cases(source)
+    cases = _read_cases(source, default_task_type=task_type)
     dataset = create_dataset(project_directory, name=name, description=description)
     for case in cases:
         create_evaluation_case(
@@ -74,7 +75,7 @@ def import_jsonl_dataset(
     return DatasetImport(dataset=dataset, case_count=len(cases))
 
 
-def _read_cases(source: Path) -> list[_CaseInput]:
+def _read_cases(source: Path, *, default_task_type: TaskType | None = None) -> list[_CaseInput]:
     try:
         lines = source.read_text(encoding="utf-8").splitlines()
     except OSError as error:
@@ -89,7 +90,7 @@ def _read_cases(source: Path) -> list[_CaseInput]:
         except json.JSONDecodeError as error:
             raise ValueError(f"Invalid JSON on line {line_number}: {error.msg}") from error
         try:
-            cases.append(_validate_case(value))
+            cases.append(_validate_case(value, default_task_type=default_task_type))
         except ValueError as error:
             raise ValueError(f"Invalid evaluation case on line {line_number}: {error}") from error
 
@@ -98,7 +99,7 @@ def _read_cases(source: Path) -> list[_CaseInput]:
     return cases
 
 
-def _validate_case(value: Any) -> _CaseInput:
+def _validate_case(value: Any, *, default_task_type: TaskType | None = None) -> _CaseInput:
     if not isinstance(value, dict):
         raise ValueError("case must be a JSON object")
     contract_version = value.get("contract_version", CASE_CONTRACT_VERSION)
@@ -106,7 +107,18 @@ def _validate_case(value: Any) -> _CaseInput:
         raise ValueError(
             f"unsupported contract_version {contract_version!r}; expected {CASE_CONTRACT_VERSION}"
         )
-    task_type = parse_task_type(value.get("task_type"))
+    declared_task_type = value.get("task_type")
+    if declared_task_type is None:
+        if default_task_type is None:
+            raise ValueError("task_type is required in the case or as the dataset import default")
+        task_type = default_task_type
+    else:
+        task_type = parse_task_type(declared_task_type)
+        if default_task_type is not None and task_type is not default_task_type:
+            raise ValueError(
+                f"case task_type {task_type.value!r} conflicts with import default "
+                f"{default_task_type.value!r}"
+            )
     evaluators = parse_evaluators(task_type, value.get("evaluators"))
     messages = parse_messages(value.get("messages"))
     criteria = parse_criteria(value.get("criteria"))

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Annotated
 
@@ -11,9 +12,11 @@ from switchcheck import __version__
 from switchcheck.checkers import parse_checkers
 from switchcheck.datasets import import_jsonl_dataset
 from switchcheck.eligibility import check_dataset_eligibility
+from switchcheck.experiments import evaluate_dataset
 from switchcheck.replay import replay, replay_dry_run
 from switchcheck.report import write_report
 from switchcheck.store import initialize_database, list_runs
+from switchcheck.task_types import TaskType, parse_task_type
 
 app = typer.Typer(
     add_completion=False,
@@ -74,15 +77,26 @@ def import_dataset_command(
     name: Annotated[str, typer.Argument(help="Unique name for the dataset.")],
     source: Annotated[Path, typer.Argument(help="UTF-8 JSONL file containing labeled cases.")],
     description: Annotated[str | None, typer.Option(help="Optional dataset description.")] = None,
+    task_type: Annotated[
+        str | None,
+        typer.Option(
+            "--task-type",
+            help="Default supported task type for every case in this import.",
+        ),
+    ] = None,
     path: Annotated[Path, typer.Option(help="Project directory to update.")] = Path("."),
 ) -> None:
     """Validate and import a labeled JSONL evaluation dataset."""
     try:
+        parsed_task_type: TaskType | None = (
+            parse_task_type(task_type) if task_type is not None else None
+        )
         result = import_jsonl_dataset(
             path,
             name=name,
             source=source,
             description=description,
+            task_type=parsed_task_type,
         )
     except ValueError as error:
         raise typer.BadParameter(str(error), param_hint="SOURCE") from error
@@ -113,6 +127,43 @@ def check_dataset_command(
         typer.echo(f"Unsupported evaluation task ({location}): {issue.reason}")
     if not report.eligible:
         raise typer.Exit(code=1)
+
+
+@app.command("evaluate")
+def evaluate_command(
+    dataset: Annotated[str, typer.Option("--dataset", help="Dataset name or ID.")],
+    model: Annotated[str, typer.Option("--model", help="Candidate LiteLLM model.")],
+    schema: Annotated[
+        Path | None,
+        typer.Option(help="JSON Schema used by configured schema evaluators."),
+    ] = None,
+    numeric_tolerance: Annotated[
+        float,
+        typer.Option(min=0.0, help="Absolute tolerance for numeric evaluators."),
+    ] = 0.0,
+    path: Annotated[Path, typer.Option(help="Project directory to update.")] = Path("."),
+) -> None:
+    """Run an eligible labeled dataset against a candidate model."""
+    try:
+        schema_value = None
+        if schema is not None:
+            schema_value = json.loads(schema.read_text(encoding="utf-8"))
+            if not isinstance(schema_value, dict):
+                raise ValueError("JSON Schema root must be an object")
+        summary = evaluate_dataset(
+            path,
+            dataset=dataset,
+            target_model=model,
+            schema=schema_value,
+            numeric_tolerance=numeric_tolerance,
+        )
+    except (OSError, json.JSONDecodeError, ValueError) as error:
+        raise typer.BadParameter(str(error), param_hint="--dataset") from error
+    typer.echo(
+        f"Experiment {summary.experiment_id}: {summary.passed_count}/{summary.case_count} "
+        f"passed ({summary.pass_rate:.0%}), {summary.failed_count} failed, "
+        f"{summary.review_count} review, {summary.error_count} errors."
+    )
 
 
 @app.command("replay")

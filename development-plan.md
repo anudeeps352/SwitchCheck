@@ -17,9 +17,10 @@ declared task/evaluator combinations outside the allow-list. Versioned cases now
 store structured criteria, reference/context evidence, and presence information;
 task-specific eligibility can be checked without a provider call.
 
-The product cannot yet run imported datasets end to end. Criteria judging,
-calibration, four-state experiment results, and the full task-specific metric
-set are planned—not shipped.
+The product now has an initial sequential `evaluate` path with four-state
+persistence for configured deterministic evaluators. Criteria judging,
+parallel/resumable execution, classification aggregates, dedicated experiment
+reports, and the full task-specific metric set are planned—not shipped.
 
 ## Delivery roadmap
 
@@ -92,14 +93,17 @@ switchcheck dataset approve support-draft --name support-v1
 switchcheck dataset refresh support-v1 --tag support
 ```
 
-### 4. Run dataset experiments
+### 4. Run dataset experiments (initial sequential slice implemented)
 
-- Select a named immutable dataset version and candidate configuration.
-- Persist the experiment and pending case attempts before provider execution.
+- A named dataset and candidate configuration can be selected with
+  `switchcheck evaluate`.
+- The experiment and pending case attempts are persisted before provider execution.
 - Use bounded concurrency and retry only transient provider failures.
 - Parse candidate text, structured output, or a single proposed tool call based
   on the declared task contract.
-- Store evaluator versions, evidence, latency, usage, and normalized request.
+- Terminal state, evaluator evidence, latency, usage, and candidate output are
+  stored. Parallelism, retry/resume, normalized request capture, and evaluator
+  versions remain.
 
 ### 5. Introduce four-state outcomes and metrics
 

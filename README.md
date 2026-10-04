@@ -20,11 +20,10 @@ is in [development-plan.md](development-plan.md).
 
 ## Next milestone: labeled evaluations
 
-The next vertical slice will import a named JSONL dataset, run its cases against
-a candidate model, compare the responses with expected values, calculate useful
-metrics, and include those results in a reproducible report. This dataset layer
-will then support the explicitly permitted evaluator families, including
-calibrated criteria judging only for eligible free-text task types.
+The dataset foundation imports named JSONL datasets and can now run an initial
+deterministic experiment against a candidate model. Task metrics and a dedicated
+experiment report remain the next pieces. Calibrated criteria judging will be
+added only for eligible free-text task types.
 
 LLM judging intentionally follows labeled datasets. Without human-reviewed
 examples, there is no reliable way to measure whether an automated judge is
@@ -53,6 +52,25 @@ Check an imported dataset's eligibility without making provider calls:
 ```powershell
 switchcheck dataset check invoice-v1
 ```
+
+When all cases share a task type, declare it once instead of repeating it in
+every JSONL row:
+
+```powershell
+switchcheck dataset import invoice-v1 cases.jsonl --task-type extraction
+```
+
+Run the initial deterministic experiment workflow:
+
+```powershell
+switchcheck evaluate --dataset invoice-v1 --model openai/gpt-4o-mini `
+  --schema invoice-schema.json --numeric-tolerance 0.01
+```
+
+The command validates the complete dataset and evaluator setup before provider
+calls, persists pending and terminal results, and reports counts for `PASS`,
+`FAIL`, `REVIEW`, and `ERROR`. Criteria judging, classification aggregates, and
+dedicated experiment HTML reports are not implemented yet.
 
 Free-text task types additionally use structured `criteria` records and, where
 required, `context` or `reference`. See the

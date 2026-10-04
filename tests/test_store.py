@@ -48,11 +48,14 @@ def test_initialize_database_creates_schema(tmp_path: Path) -> None:
     assert tables == {
         "datasets",
         "evaluation_cases",
+        "evaluation_results",
+        "experiments",
         "replay_results",
         "replays",
         "runs",
     }
     assert {
+        "idx_evaluation_results_experiment_id",
         "idx_replay_results_replay_id",
         "idx_runs_created_at",
         "idx_runs_tag",

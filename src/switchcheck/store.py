@@ -16,7 +16,7 @@ from switchcheck.task_types import EvaluatorType, TaskType, parse_evaluators
 
 DATABASE_DIRECTORY = ".switchcheck"
 DATABASE_FILENAME = "switchcheck.sqlite3"
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 _SCHEMA_V1 = """
 CREATE TABLE IF NOT EXISTS runs (
@@ -107,6 +107,38 @@ ALTER TABLE evaluation_cases ADD COLUMN has_reference INTEGER NOT NULL DEFAULT 0
 ALTER TABLE evaluation_cases ADD COLUMN context_json TEXT;
 ALTER TABLE evaluation_cases ADD COLUMN has_context INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE evaluation_cases ADD COLUMN criteria_json TEXT NOT NULL DEFAULT '[]';
+"""
+
+_SCHEMA_V5 = """
+CREATE TABLE IF NOT EXISTS experiments (
+    id TEXT PRIMARY KEY,
+    created_at TEXT NOT NULL,
+    dataset_id TEXT NOT NULL REFERENCES datasets(id),
+    target_model TEXT NOT NULL,
+    params_json TEXT NOT NULL,
+    evaluator_config_json TEXT NOT NULL,
+    package_version TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS evaluation_results (
+    id TEXT PRIMARY KEY,
+    experiment_id TEXT NOT NULL REFERENCES experiments(id),
+    case_id TEXT NOT NULL REFERENCES evaluation_cases(id),
+    output_text TEXT,
+    output_json TEXT,
+    input_tokens INTEGER,
+    output_tokens INTEGER,
+    cost_usd REAL,
+    latency_ms INTEGER,
+    state TEXT CHECK (state IN ('PASS', 'FAIL', 'REVIEW', 'ERROR')),
+    score REAL CHECK (score >= 0 AND score <= 1),
+    verdict_json TEXT,
+    error TEXT,
+    UNIQUE (experiment_id, case_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_evaluation_results_experiment_id
+ON evaluation_results(experiment_id);
 """
 
 
@@ -203,6 +235,25 @@ class ReportCase:
     result: ReplayResult
 
 
+@dataclass(frozen=True)
+class EvaluationResult:
+    """One persisted candidate attempt for a labeled evaluation case."""
+
+    id: str
+    experiment_id: str
+    case_id: str
+    output_text: str | None
+    output_json: Any | None
+    input_tokens: int | None
+    output_tokens: int | None
+    cost_usd: float | None
+    latency_ms: int | None
+    state: str | None
+    score: float | None
+    verdict: list[dict[str, Any]] | None
+    error: str | None
+
+
 def database_path(project_directory: Path) -> Path:
     """Return the project-local database path without creating it."""
     return project_directory.resolve() / DATABASE_DIRECTORY / DATABASE_FILENAME
@@ -249,6 +300,9 @@ def initialize_database(project_directory: Path) -> Path:
             if current_version < 4:
                 connection.executescript(_SCHEMA_V4)
                 current_version = 4
+            if current_version < 5:
+                connection.executescript(_SCHEMA_V5)
+                current_version = 5
             connection.execute(f"PRAGMA user_version = {current_version}")
     finally:
         connection.close()
@@ -472,6 +526,122 @@ def list_evaluation_cases(project_directory: Path, *, dataset_id: str) -> list[E
             (dataset_id,),
         ).fetchall()
     return [_evaluation_case_from_row(row) for row in rows]
+
+
+def create_experiment(
+    project_directory: Path,
+    *,
+    dataset_id: str,
+    target_model: str,
+    params: dict[str, Any],
+    evaluator_config: dict[str, Any],
+) -> str:
+    """Persist an immutable dataset experiment configuration."""
+    path = initialize_database(project_directory)
+    experiment_id = str(uuid4())
+    with connect(path) as connection:
+        connection.execute(
+            """
+            INSERT INTO experiments (
+                id, created_at, dataset_id, target_model, params_json,
+                evaluator_config_json, package_version
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                experiment_id,
+                datetime.now(timezone.utc).isoformat(),
+                dataset_id,
+                target_model,
+                _dump_json(params),
+                _dump_json(evaluator_config),
+                __version__,
+            ),
+        )
+    return experiment_id
+
+
+def create_evaluation_result(
+    project_directory: Path, *, experiment_id: str, case_id: str
+) -> EvaluationResult:
+    """Persist a pending result before invoking the candidate provider."""
+    path = initialize_database(project_directory)
+    result_id = str(uuid4())
+    with connect(path) as connection:
+        connection.execute(
+            """
+            INSERT INTO evaluation_results (id, experiment_id, case_id)
+            VALUES (?, ?, ?)
+            """,
+            (result_id, experiment_id, case_id),
+        )
+        row = connection.execute(
+            "SELECT * FROM evaluation_results WHERE id = ?", (result_id,)
+        ).fetchone()
+    if row is None:
+        raise RuntimeError("Unable to create evaluation result.")
+    return _evaluation_result_from_row(row)
+
+
+def update_evaluation_result(
+    project_directory: Path,
+    *,
+    result_id: str,
+    output_text: str | None = None,
+    output_json: Any | None = None,
+    input_tokens: int | None = None,
+    output_tokens: int | None = None,
+    cost_usd: float | None = None,
+    latency_ms: int | None = None,
+    state: str,
+    score: float,
+    verdict: list[dict[str, Any]],
+    error: str | None = None,
+) -> EvaluationResult:
+    """Complete one pending evaluation result."""
+    path = initialize_database(project_directory)
+    with connect(path) as connection:
+        connection.execute(
+            """
+            UPDATE evaluation_results
+            SET output_text = ?, output_json = ?, input_tokens = ?, output_tokens = ?,
+                cost_usd = ?, latency_ms = ?, state = ?, score = ?, verdict_json = ?, error = ?
+            WHERE id = ?
+            """,
+            (
+                output_text,
+                _dump_json(output_json) if output_json is not None else None,
+                input_tokens,
+                output_tokens,
+                cost_usd,
+                latency_ms,
+                state,
+                score,
+                _dump_json(verdict),
+                error,
+                result_id,
+            ),
+        )
+        row = connection.execute(
+            "SELECT * FROM evaluation_results WHERE id = ?", (result_id,)
+        ).fetchone()
+    if row is None:
+        raise ValueError(f"Unknown evaluation result: {result_id}")
+    return _evaluation_result_from_row(row)
+
+
+def list_evaluation_results(
+    project_directory: Path, *, experiment_id: str
+) -> list[EvaluationResult]:
+    """Return every result for an experiment in stable order."""
+    path = database_path(project_directory)
+    if not path.is_file():
+        return []
+    with connect(path) as connection:
+        rows = connection.execute(
+            "SELECT * FROM evaluation_results WHERE experiment_id = ? ORDER BY id",
+            (experiment_id,),
+        ).fetchall()
+    return [_evaluation_result_from_row(row) for row in rows]
 
 
 def list_runs(
@@ -721,6 +891,24 @@ def _dataset_from_row(row: sqlite3.Row) -> Dataset:
         name=row["name"],
         description=row["description"],
         contract_version=row["contract_version"],
+    )
+
+
+def _evaluation_result_from_row(row: sqlite3.Row) -> EvaluationResult:
+    return EvaluationResult(
+        id=row["id"],
+        experiment_id=row["experiment_id"],
+        case_id=row["case_id"],
+        output_text=row["output_text"],
+        output_json=json.loads(row["output_json"]) if row["output_json"] is not None else None,
+        input_tokens=row["input_tokens"],
+        output_tokens=row["output_tokens"],
+        cost_usd=row["cost_usd"],
+        latency_ms=row["latency_ms"],
+        state=row["state"],
+        score=row["score"],
+        verdict=json.loads(row["verdict_json"]) if row["verdict_json"] is not None else None,
+        error=row["error"],
     )
 
 

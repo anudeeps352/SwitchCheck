@@ -9,6 +9,7 @@ import pytest
 
 from switchcheck.datasets import import_jsonl_dataset
 from switchcheck.store import database_path, list_evaluation_cases
+from switchcheck.task_types import TaskType
 
 
 def test_import_jsonl_dataset_persists_labeled_cases(tmp_path: Path) -> None:
@@ -102,6 +103,41 @@ def test_import_rejects_evaluator_not_permitted_for_task(tmp_path: Path) -> None
 
     with pytest.raises(ValueError, match="not permitted"):
         import_jsonl_dataset(tmp_path, name="invalid-evaluator", source=source)
+
+
+def test_import_applies_dataset_task_type_default(tmp_path: Path) -> None:
+    source = tmp_path / "labels.jsonl"
+    source.write_text(
+        '{"messages":[{"role":"user","content":"Classify this"}],"expected":"billing"}\n',
+        encoding="utf-8",
+    )
+
+    result = import_jsonl_dataset(
+        tmp_path,
+        name="labels-v1",
+        source=source,
+        task_type=TaskType.CLASSIFICATION,
+    )
+    case = list_evaluation_cases(tmp_path, dataset_id=result.dataset.id)[0]
+
+    assert case.task_type is TaskType.CLASSIFICATION
+
+
+def test_import_rejects_case_that_conflicts_with_dataset_task_type(tmp_path: Path) -> None:
+    source = tmp_path / "mixed.jsonl"
+    source.write_text(
+        '{"task_type":"decision","messages":[{"role":"user","content":"Route this"}],'
+        '"expected":"fraud_team"}\n',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="conflicts with import default"):
+        import_jsonl_dataset(
+            tmp_path,
+            name="mixed-v1",
+            source=source,
+            task_type=TaskType.CLASSIFICATION,
+        )
 
 
 def test_import_support_response_with_context_and_structured_criteria(tmp_path: Path) -> None:
